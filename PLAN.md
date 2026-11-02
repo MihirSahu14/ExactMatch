@@ -1,0 +1,126 @@
+# ExactMatch: build plan (source of truth)
+
+> **For Claude sessions:** read this file first. Where it disagrees with `README.md`, **this file wins**. Do not change the shared interfaces below without telling the whole team. Only edit files your role owns.
+
+**Product:** paste a product link, get back every listing of that exact product in the catalog. Each match comes with a confidence and evidence. An empty result is a valid answer.
+
+**Changes from README.md:**
+1. Dataset is **WDC Products (multi-class)**, not Abt-Buy. Abt-Buy is pairs from 2 shops; WDC has groups (clusters) of the same product across many shops.
+2. We use **WDC's official train/valid/test splits**, not our own 60/20/20 split.
+3. `find_matches` returns a **`Result`**, not `list[Match]`. The scorer needs the candidates for recall@k, and the cost of each lookup.
+4. IDs carry a **source prefix** (`wdc:` / `web:`).
+5. New **`Query`** type that holds the gold answers.
+
+---
+
+## 1. Dataset: WDC Products (multi-class, 80% corner cases)
+
+- 11,715 offers from 3,259 web shops (2020 crawl), grouped into 2,162 real products by `cluster_id`. That's about 5 offers per product.
+- **"Corner cases" are the hard pairs:** near-miss products that look alike, and matching listings with very different wording. We use the 80% level (the hardest), so the baseline has room to fail.
+- Download: `https://data.dws.informatik.uni-mannheim.de/largescaleproductcorpus/data/wdc-products/80multi.zip` (about 2.4 MB). It contains gzipped JSON lines; read it with `pd.read_json(path, lines=True)`.
+  - Page with all variants: https://webdatacommons.org/largescaleproductcorpus/wdc-products/
+- Raw fields per offer: `id, brand, title, description, price, priceCurrency, cluster_id, label`. The multi-class files also have `unseen`.
+- There are **no live URLs** in the benchmark files. The 2020 URLs exist only in a 4.3 GB file and are mostly dead, so we don't use them.
+
+### How the benchmark works
+- **Catalog** = all offers in train + valid + test.
+- **Queries** = test offers (1,000). Tune on valid queries only.
+- **Gold** for a query = all *other* catalog offers with the same `cluster_id`. If the product has only one offer, gold is empty, which tests "return nothing".
+- **`cluster_id` never leaves `data.py`.** If systems could see it, the answer would leak.
+- Few-shot examples and fine-tuning data come from **train only**.
+
+### Live demo (separate from the benchmark)
+C builds a small **live catalog**: about 50–100 current listings (a few products × several stores), made by running `ingest.py` on real URLs and saved to `data/live_catalog.jsonl`. These same pages are the ingestion eval (`data/ingest_eval.jsonl`, about 25 URLs with title, brand and model number labeled by hand). The demo runs on the live catalog; the benchmark numbers come from WDC.
+
+---
+
+## 2. Shared interfaces: `exactmatch/schema.py`
+
+Commit this file first, exactly as below. Everyone imports it from here.
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class ProductRecord:
+    id: str                          # "wdc:<offer id>" for benchmark, "web:<sha1(url)[:12]>" for live links
+    title: str
+    description: str = ""
+    brand: str | None = None
+    price: float | None = None
+    currency: str | None = None      # from WDC priceCurrency
+    model_number: str | None = None  # empty in raw data; filled by normalize.py
+    url: str | None = None           # live links only
+    attrs: dict = field(default_factory=dict)  # specs from JSON-LD / meta tags
+
+@dataclass
+class Query:
+    record: ProductRecord
+    gold_ids: set[str]               # catalog ids that truly match; may be empty
+
+@dataclass
+class Match:
+    product_id: str
+    confidence: float                # 0 to 1
+    evidence: str                    # e.g. "model no. KDL46V5100 matches"
+
+@dataclass
+class Result:                        # one per query, returned by every system
+    matches: list[Match]
+    candidate_ids: list[str]         # retrieval top-k, used for recall@k
+    cost_usd: float = 0.0
+    tokens: int = 0
+```
+
+### Functions each role exposes
+
+| Owner | Function |
+|---|---|
+| A | `data.load_catalog() -> list[ProductRecord]` |
+| A | `data.load_queries(split: str) -> list[Query]`, where `split` is `"train"`, `"valid"` or `"test"` |
+| B | `systems/<id>.py: find_matches(query: ProductRecord, k: int = 20) -> Result` |
+| C | `ingest.ingest(url: str) -> ProductRecord` |
+| C | `normalize.py`: `model_numbers(text) -> list[str]`, `normalize_brand(s) -> str`, unit/size helpers |
+
+To run the scorer:
+```bash
+python -m exactmatch.evaluate --system s0 --split test
+```
+It loads `exactmatch.systems.s0`, calls `find_matches` for each query, times each call, and writes `runs/<timestamp>_<system>_<split>/` with `config.json`, `prompts/`, `predictions.jsonl` and `metrics.json`.
+
+**Metrics:** match P/R/F1 (micro-averaged over query × returned listing), exact-set accuracy, retrieval recall@k, cost per 1k lookups, and mean/p95 latency.
+
+---
+
+## 3. Roles and file ownership
+
+| Role | Owns | Branch |
+|---|---|---|
+| **A: data, eval and results** (Mihir) | `data.py`, `evaluate.py`, `report.py` | `a/data-eval` |
+| **B: matching engine** | `llm.py`, `retrieval.py`, `systems/` | `b/...` |
+| **C: ingestion, demo and story** | `schema.py`, `ingest.py`, `normalize.py`, `app.py` | `c/...` |
+
+- B and C can build against stub data until `data.py` lands: a few hand-made `ProductRecord`s are enough.
+- The systems to build (`s0`–`s5`) are the same as in README.md: BM25 + zero-shot → hybrid retrieval + structured prompt → few-shot → rules + listwise → cascade → optional LoRA.
+
+---
+
+## 4. Ground rules
+1. **Nobody looks at test errors.** Tune on valid only.
+2. **Only A edits `evaluate.py`** once the baseline is scored.
+3. Every LLM call is cached (key = model + prompt hash). Never commit `FIREWORKS_API_KEY`. The budget is $50.
+4. Work on your own branch. Merge `main` into it before starting each new system, and open small PRs into `main` often.
+5. Commit the final `runs/` directories. `results.md` is generated from them, never edited by hand.
+
+---
+
+## 5. Timeline (submissions close 4:30 PM sharp)
+
+| By | Milestone |
+|---|---|
+| 1:15 | `schema.py` on main; `data.py` + scorer working; `s0` scored on test (critical path) |
+| 2:00 | `s1` scored; `ingest.py` working on real URLs |
+| 2:45 | `s2` + `s3` scored; live catalog + ingestion eval done; demo runs end to end |
+| 3:15 | `s4` scored; `s5` only if the fine-tune is already running |
+| **3:30** | **Feature freeze.** Final runs, generate `results.md` |
+| 4:15 | Demo, slides and README results done; submit |
