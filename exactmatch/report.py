@@ -17,13 +17,13 @@ HEADER = ("| System | Queries (no match) | F1 | ΔF1 vs s0 | Precision | Recall 
           "| False / missed | Cost per 1k | p95 latency | Errors | Run |")
 
 # Validated categorical slots 1-3 (dataviz palette, all-pairs CVD-safe); aqua is <3:1, so every mark is labeled.
-FAMILIES = {"Small open model": "#2a78d6", "Big open model": "#eb6834", "Closed frontier (Claude)": "#1baf7a"}
+FAMILIES = {"Our pipeline (open model)": "#2a78d6", "Big open model": "#eb6834", "Closed frontier (Claude)": "#1baf7a"}
 INK, INK2, MUTED, GRID, AXIS, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"
 
 
 def family(system: str) -> str:
     return "Closed frontier (Claude)" if "claude" in system else "Big open model" if "big" in system \
-        else "Small open model"
+        else "Our pipeline (open model)"
 
 
 def _f(x, fmt=".3f"):
@@ -61,12 +61,12 @@ def build(runs: Path = RUNS, charts: list[str] = ()) -> str:
     if head:
         rows = {sysname: m for (s, lim, sysname), (_, m) in latest.items() if (s, lim) == head}
         claude = rows.get("s0_claude")
-        ours = {k: m for k, m in rows.items() if family(k) == "Small open model"}
+        ours = {k: m for k, m in rows.items() if family(k) == "Our pipeline (open model)"}
         if claude and ours:
             best = max(ours, key=lambda k: ours[k]["f1"])
             b = ours[best]
             ratio = claude["cost_per_1k_usd"] / b["cost_per_1k_usd"] if b["cost_per_1k_usd"] else None
-            out += [f"**Headline ({head[0]}, {rows[best]['queries']} queries):** best small-model system `{best}` "
+            out += [f"**Headline ({head[0]}, {rows[best]['queries']} queries):** best system of ours `{best}` "
                     f"reaches F1 {b['f1']:.3f} vs Claude Opus 5.5 at {claude['f1']:.3f} "
                     f"({b['f1'] / claude['f1']:.0%} of its F1)"
                     + (f" at {ratio:.0f}x lower cost per lookup." if ratio else "."), ""]
@@ -193,7 +193,7 @@ def make_charts(runs: Path = RUNS, out_dir: Path = CHARTS) -> list[str]:
         fig, ax = _axes(plt, "Iterations  ·  F1 on valid, every run in order (tuning happens here, never on test)",
                         w=max(8, 0.9 * len(valid) + 3))
         ys = [m["f1"] for _, _, m in valid]
-        ax.plot(range(len(valid)), ys, color=FAMILIES["Small open model"], linewidth=2, zorder=2)
+        ax.plot(range(len(valid)), ys, color=FAMILIES["Our pipeline (open model)"], linewidth=2, zorder=2)
         ax.scatter(range(len(valid)), ys, s=70, c=[FAMILIES[family(c["system"])] for _, c, _ in valid],
                    edgecolors=SURFACE, linewidths=2, zorder=3)
         best = max(range(len(ys)), key=ys.__getitem__)

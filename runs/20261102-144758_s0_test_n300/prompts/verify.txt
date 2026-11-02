@@ -1,0 +1,8 @@
+Do these two product offers refer to exactly the same product?
+Answer with only "yes" or "no".
+
+Product A:
+{a}
+
+Product B:
+{b}

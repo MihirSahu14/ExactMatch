@@ -1,0 +1,18 @@
+{
+  "system": "s0",
+  "split": "valid",
+  "k": 20,
+  "limit": 300,
+  "workers": 8,
+  "git_commit": "71c0726",
+  "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+  "price_per_1m_in_out": [
+    0.05,
+    0.2
+  ],
+  "retrieval": "bm25",
+  "verify": "pointwise zero-shot yes/no",
+  "temperature": 0.0,
+  "max_tokens": 3,
+  "reasoning_effort": "none"
+}

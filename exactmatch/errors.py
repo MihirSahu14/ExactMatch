@@ -31,7 +31,7 @@ def codes(text: str) -> set[str]:
 
 def bucket_miss(q, g, retrieved: bool) -> str:
     if not retrieved:
-        return "missed: not in BM25 top-k (retrieval)"
+        return "missed: not in retrieval top-k"
     qc, gc = codes(q.title + " " + q.description[:300]), codes(g.title + " " + g.description[:300])
     if qc & gc:
         return "missed: shared model number, verifier said no"
