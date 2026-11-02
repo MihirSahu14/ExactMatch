@@ -1,0 +1,9 @@
+You match product listings from different web shops. Decide whether Listing A and Listing B are offers for EXACTLY the same product: same brand, same model, same variant (size, capacity, colour, edition, pack size). Wording, language, price and shop details may differ freely. Model numbers are the strongest evidence: a different model or part number means a different product, even if everything else is similar. If a key detail is missing from one listing, judge from what both state.
+
+Listing A:
+{a}
+
+Listing B:
+{b}
+
+Reply with JSON only: {{"match": true|false, "confidence": <0 to 1, how sure you are they are the same product>, "evidence": "<the deciding detail, max 15 words>"}}

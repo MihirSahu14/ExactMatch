@@ -1,0 +1,18 @@
+{
+  "queries": 300,
+  "queries_no_match": 110,
+  "precision": 0.9273684210526316,
+  "recall": 0.8075160403299725,
+  "f1": 0.8633023027927486,
+  "exact_set_acc": 0.6833333333333333,
+  "no_match_acc": 0.990909090909091,
+  "k": 20,
+  "recall_at_k": 0.8982584784601283,
+  "false_matches": 69,
+  "missed_matches": 210,
+  "cost_per_1k_usd": 0.8876373333333332,
+  "tokens": 779270,
+  "latency_mean_s": 3.9382956456664155,
+  "latency_p95_s": 3.7494275999924866,
+  "errors": 0
+}

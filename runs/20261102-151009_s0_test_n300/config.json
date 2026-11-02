@@ -1,0 +1,18 @@
+{
+  "system": "s0",
+  "split": "test",
+  "k": 20,
+  "limit": 300,
+  "workers": 4,
+  "git_commit": "f766e47-dirty",
+  "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+  "price_per_1m_in_out": [
+    0.3,
+    1.2
+  ],
+  "retrieval": "bm25",
+  "verify": "pointwise zero-shot yes/no",
+  "temperature": 0.0,
+  "max_tokens": 3,
+  "reasoning_effort": "none"
+}
