@@ -1,4 +1,4 @@
-"""WDC Products (80% corner cases) -> catalog + queries. See PLAN.md section 1.
+"""WDC Products (80% corner cases) -> catalog + queries. See docs/PLAN.md section 1.
 
 Catalog = WDC train offers. Valid/test queries are never in the catalog.
 Unseen products (WDC "100% unseen" test file) have no catalog listing, so their gold is empty;

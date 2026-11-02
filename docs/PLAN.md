@@ -1,5 +1,7 @@
 # ExactMatch: build plan (source of truth)
 
+> **Historical:** this is the build plan written during the day. For what was actually built and measured, see the [README](../README.md) and [docs/FINAL.md](FINAL.md).
+
 > **For Claude sessions:** read this file first. Where it disagrees with `README.md`, **this file wins**. Do not change the shared interfaces below without telling the whole team. Only edit files your role owns.
 
 **Product:** paste a product link, get back every listing of that exact product in the catalog. Each match comes with a confidence and evidence. An empty result is a valid answer.

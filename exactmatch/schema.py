@@ -1,4 +1,4 @@
-"""Shared interfaces. See PLAN.md section 2; change only with the whole team."""
+"""Shared interfaces. See docs/PLAN.md section 2; change only with the whole team."""
 from dataclasses import dataclass, field
 
 

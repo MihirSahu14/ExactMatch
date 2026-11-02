@@ -1,156 +1,137 @@
 # ExactMatch
 
-**Paste a product link and get back every listing of that exact product in a catalog. Powered by a small open model that beats an off-the-shelf LLM on accuracy and cost.**
+**Paste a product, or a link to one, and get back every listing of that exact product in a catalog, each with a confidence and the evidence for it. If the product isn't there, it says so.**
 
-> Build details (shared interfaces, file ownership, timeline) live in [`PLAN.md`](PLAN.md). Where the two disagree, PLAN.md wins.
+An open model on Fireworks inside a purpose-built harness **beats Claude Opus 5.5 on match F1 at 32× lower cost per lookup**.
 
-Marketplaces, price-comparison sites and retail catalog teams keep getting the same product listed under different titles, descriptions and prices by different shops. *"Sony Bravia 46in LCD KDL-46V5100"* and *"Sony 46" BRAVIA V-Series Full HD LCD TV - KDL46V5100"* are the same SKU. A near-miss like the KDL-46**W**5100 is a different product. Getting this wrong causes:
+*Fireworks: Deploy hackathon, Nov 2 2026 · Mihir Sahu (data, eval, results) · Ishita Kapoor (matching engine) · `imharshk18` (link ingestion and demo)*
 
-- **Fragmented listings**: reviews, inventory and buy-box get split across copies, which hurts conversion.
-- **Wrong price comparisons**: shoppers and pricing teams see the wrong "best price" or compare against the wrong item.
-- **Manual review cost**: catalog ops teams pay people to match products by hand.
+---
 
-**What ExactMatch does:**
+## Results
 
+Test split, the **same fixed random sample of 300 queries for every system** (110 of them have no match in the catalog). Final runs used an empty cache, so latency is measured, not cached.
+
+| System | What it is | Match F1 | Precision | Recall | Cost per 1,000 lookups | p95 latency |
+|---|---|---|---|---|---|---|
+| Claude Opus 5.5 | Closed frontier model, baseline pipeline | 0.853 | 0.944 | 0.778 | $28.21 | 9.7s |
+| Kimi K3 | Big open model, baseline pipeline | 0.824 | 0.920 | 0.746 | $12.50 | 10.6s |
+| `s0` | DeepSeek V4.1 Flash, baseline pipeline | 0.814 | 0.880 | 0.757 | $1.13 | 26.5s |
+| **`s3`** | **Our harness: hybrid retrieval + one listwise call** | **0.863** | 0.927 | 0.808 | **$0.89** | **3.7s** |
+| **`s4`** | **`s3` + cascade to Kimi K3 when unsure** | **0.869** | 0.934 | 0.812 | $3.04 | 7.7s |
+
+**On the whole test split (1,500 queries)** the harness takes the same cheap model from **0.838 (`s0`) to 0.881 (`s3`) and 0.885 (`s4`)**. `s3` is also cheaper than the baseline ($0.89 vs $1.12 per 1,000 lookups). Claude was run on the 300-query sample only.
+
+<p>
+  <img src="results/cost_vs_f1.png" width="49%" alt="Match F1 against cost per 1,000 lookups">
+  <img src="results/f1_by_system.png" width="49%" alt="Match F1 by system">
+</p>
+
+**How to read the comparison:** Claude and Kimi ran our *baseline* pipeline: BM25 top 20, one yes/no question per candidate. The claim is that a cheap open model in a good harness beats a frontier model in a naive one, at a fraction of the cost. It does not say the open model is smarter than Claude. Every caveat is in [docs/FINAL.md, section 9](docs/FINAL.md#9-honesty-problems-we-found-and-when).
+
+All numbers come from committed run folders in [`runs/`](runs/), and [`results.md`](results.md) is generated from them.
+
+## The use case
+
+Marketplaces, price-comparison sites and retail catalog teams get the same product listed many times by different sellers under different titles. *"Sony Bravia 46in LCD KDL-46V5100"* and *"Sony 46" BRAVIA V-Series Full HD LCD TV - KDL46V5100"* are one SKU; the KDL-46**W**5100 is not.
+- **Missed matches** split reviews, inventory and the buy box, and price comparisons miss competitors.
+- **False matches** merge different products or compare the wrong price. That's worse, because customers see the wrong item.
+- Catalog teams pay people to check candidate pairs by hand.
+
+**What the cost gap means at scale.** At 1 million lookups a month, Claude Opus 5.5 in the baseline pipeline costs about **$28,200**. ExactMatch `s3` costs about **$890**, with higher F1 and 2.6× lower p95 latency. A team that wants the extra quality runs `s4` for about $3,040.
+
+## How it works
+
+```mermaid
+flowchart LR
+  U["Product URL<br/>or record"] --> I["Ingest<br/>JSON-LD, meta tags,<br/>LLM only if fields missing"]
+  I --> N["Normalize<br/>brand, model number,<br/>units, variants"]
+  N --> R["Retrieve top 30<br/>BM25 + Qwen3 embeddings<br/>+ model-number index (RRF)"]
+  R --> V["Verify: ONE listwise call<br/>DeepSeek V4.1 Flash<br/>with model-number hints"]
+  V -->|"unsure"| K["Cascade<br/>Kimi K3 re-judges"]
+  V --> M["0..n exact matches<br/>confidence + evidence"]
+  K --> M
 ```
-product URL ──► 1. Ingest     fetch page → extract title, brand, model/part no., specs, price
-            ──► 2. Retrieve   find top-k candidate listings in the catalog (keyword + embeddings + model-number index)
-            ──► 3. Verify     small open model (Fireworks AI) + harness decides which candidates are the EXACT same product
-            ──► results       0..n exact matches, each with confidence and evidence (e.g. "model no. KDL46V5100 matches")
-```
 
-An empty result is a valid answer: if the product isn't in the catalog, we say so instead of returning the closest lookalike.
+### How we got there
+Each step was chosen from error analysis on the **validation** split. F1 is on 300 validation queries:
 
----
+| Step | Change | Why | Valid F1 | Cost per 1k |
+|---|---|---|---|---|
+| `s0` | BM25 top 20, yes/no per candidate | Baseline | 0.836 | $1.11 |
+| `s1` | Hybrid retrieval, JSON verdict with evidence | 44% of `s0`'s errors were true matches never retrieved | 0.870 | $3.09 |
+| `s2` | Few-shot examples from train labels | Verifier rejected part-number aliases (`WS-C2960-48TC-L` vs `Catalyst 2960 Plus-48TC-L`) | 0.872 | $8.02 |
+| `s3` | One listwise call over 30 candidates, with "shares code X" / "different codes" hints | Comparing candidates against each other separates near-misses, and one call is cheaper than 20 | 0.879 | **$0.88** |
+| `s4` | Cascade: uncertain answers re-judged by Kimi K3 | Spend the big model only where the cheap one is unsure | **0.888** | $3.16 |
 
-## How we map to the judging criteria
+<img src="results/iterations.png" width="70%" alt="F1 on validation, every run in order">
 
-| Weight | Criterion | How we cover it |
-|---|---|---|
-| 40% | Benchmark evaluation | **WDC Products** (official splits, hardest "80% corner cases" setting): offers from thousands of web shops with known exact-match groups. Every system runs on the same held-out queries with the same scorer. We report the baseline, each improvement and the gain. |
-| 25% | Business value | Link in, matches out: the workflow a catalog or pricing analyst actually runs. We report **match F1, cost per 1k lookups and latency**, and translate the error reduction into analyst-hours saved. |
-| 20% | Technical execution | End-to-end pipeline: page ingestion, hybrid retrieval, then LLM verification with normalization, retrieved few-shot examples, rule checks and a confidence-based cascade. Optional LoRA fine-tune trained only on train data. |
-| 10% | Presentation & demo | Live: paste a link and get the matching listings with evidence. Show the baseline's wrong answer next to ours. |
-| 5% | Documentation | One command reproduces each row of the results table. Every run saves its config, prompts, outputs and metrics. |
+**`s4_groups`, reported separately:** it returns the whole catalog product group of `s4`'s top match. That scores **F1 0.959** on the full test split. In this benchmark, though, the correct answers are defined by those same groups, and Claude never saw them, so it is **not** part of the comparison. See [docs/FINAL.md](docs/FINAL.md).
 
----
+## Benchmark
 
-## Data and benchmark
+- **Dataset:** [WDC Products](https://webdatacommons.org/largescaleproductcorpus/wdc-products/), multi-class, **80% corner cases** (its hardest setting): offers from 3,259 web shops grouped into real products. We chose it over Abt-Buy because Abt-Buy is pairs from two shops, while our task returns *every* listing of a product.
+- **Catalog:** the 2,841 WDC train offers (500 products).
+- **Queries:** validation and test offers, which are never in the catalog. 500 products per split are missing from the catalog entirely, so "return nothing" is tested too.
+- **Gold:** the catalog offers of the same product.
+- **Metrics:** match F1 (primary), precision, recall, exact-set accuracy, no-match accuracy, retrieval recall@20, cost per 1,000 lookups (token usage × list price), p95 latency.
+- **Rules:** tune on validation only, and never read test errors. `python -m exactmatch.data` checks that no query can find itself.
 
-**Dataset: WDC Products, multi-class, 80% corner cases** (Web Data Commons, University of Mannheim).
-- About 11.7k product offers from about 3.3k web shops (2020 Common Crawl, schema.org markup), grouped into about 2.2k real products by `cluster_id`.
-- **"Corner cases"** are hard pairs: lookalike products that are different, and matching offers with very different wording. We use the hardest setting (80%) so the baseline has room to fail.
-- Landing page: https://webdatacommons.org/largescaleproductcorpus/wdc-products/
-- File: https://data.dws.informatik.uni-mannheim.de/largescaleproductcorpus/data/wdc-products/80multi.zip (`python -m exactmatch.data --download`)
-- Paper: Peeters, Der & Bizer, *WDC Products: A Multi-Dimensional Entity Matching Benchmark* (EDBT 2024).
-
-**How we turn it into a "link in, matches out" benchmark** (implemented in `exactmatch/data.py`):
-- **Catalog** = WDC train offers.
-- **Queries** = WDC valid offers (for tuning) and WDC test offers (for final scoring). Queries are never in the catalog.
-- **Gold** = the catalog offers with the same `cluster_id`.
-- WDC's "unseen products" offers have no listing in the catalog, so their gold is empty. Their products are split half to valid and half to test, which scores the "return nothing" behaviour.
-- **`cluster_id` never leaves `data.py`**, so no system can see the answer.
-- The benchmark files have no live URLs, so the query record goes straight into stage 2. **Stage 1 (ingestion) is evaluated separately** on about 25 hand-labeled real product URLs. Those pages also form the small live catalog used in the demo (`data/live_catalog.jsonl`).
-
-**Rules (non-negotiable):**
-1. **Test queries are for final scoring only.** Nobody looks at test errors to tweak prompts.
-2. Prompt iteration, threshold tuning and the choice of few-shot examples use **train/valid only**.
-3. Few-shot examples and fine-tuning data come from **train only**.
-4. Report the number of test queries and how many have no match next to every score.
-
-### Metrics (computed by `exactmatch/evaluate.py`)
-- **Primary: match F1**, micro-averaged over (query, returned listing) pairs. Precision means "every returned listing really is the same product", and recall means "we found all of them".
-- **Exact-set accuracy**: the share of queries where the returned set equals the gold set exactly. **No-match accuracy**: the share of no-match queries where we correctly return nothing.
-- **Retrieval recall@k**: the share of gold matches that make it into the top-k candidates. This is the ceiling for stage 3, and it tells us whether to fix retrieval or verification.
-- **Ops**: cost per 1k lookups (Fireworks token usage × price) and mean and p95 latency per lookup.
-- **Business translation**: a *missed match* leaves a duplicate live or a competitor price unseen. A *false match* merges two different products or compares the wrong price, which is worse. Both counts are reported.
-
----
-
-## Systems (the ladder we climb)
-
-Every system takes the same query and candidate pool size k, and returns a `Result` (matches + candidates + cost). Each one is scored on the same test queries, so the gain from each idea is visible.
-
-| ID | System | Idea |
-|---|---|---|
-| `s0` | **Baseline** | Plain keyword (BM25) top-k, then a small open model asked zero-shot for each candidate: *"Same product? yes/no"*. This is "off the shelf". |
-| `s0_big` | **Reference** | Same as `s0` with a large open model. Shows whether our small-model harness matches or beats a model that costs much more. |
-| `s1` | **Normalization + better retrieval** | Extract and normalize brand, model/part number, size/capacity and color. Add a model-number index and embeddings to retrieval (hybrid). Use a structured prompt with a matching rubric and JSON output (`{"match": bool, "confidence": 0-1, "evidence": ...}`). |
-| `s2` | **+ Retrieved few-shot** | Include the most similar labeled *train* pairs as examples, covering both matches and hard non-matches such as near-miss model numbers, bundles and accessories. |
-| `s3` | **+ Rule checks and listwise verification** | Hard signals override the LLM: conflicting model numbers mean **no match**, and the same brand with an exact model number means **match**. The LLM sees all the remaining candidates together so it can tell variants apart. |
-| `s4` | **+ Cascade / routing** | Low-confidence decisions go to the large model. Report the share escalated, F1 and the blended cost. |
-| `s5` *(optional)* | **+ LoRA fine-tune** | Fine-tune the small model on train pairs (Fireworks fine-tuning) and use it inside `s3`/`s4`. |
-
-**Expected story:** `s0` misses matches that keyword search ranks low and accepts lookalikes. `s1`–`s3` should give the biggest jump. `s4` gives most of the large model's quality at a fraction of its cost.
-
----
-
-## Running it
+## Run it
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export FIREWORKS_API_KEY=...                                     # never commit this
-python -m exactmatch.data --download                             # fetch WDC + sanity-check splits
-python -m exactmatch.evaluate --system s0 --split valid --limit 200   # cheap tuning run
-python -m exactmatch.evaluate --system s0 --split test                # final score
-python -m tests.test_evaluate                                    # scorer self-test
+pip install -r requirements.txt          # Python 3.11
+cp .env.example .env                     # add FIREWORKS_API_KEY (and ANTHROPIC_API_KEY for the Claude baseline)
+python -m exactmatch.data                # downloads WDC (2.4 MB), prints split stats, checks for leaks
 ```
 
-Every run writes to `runs/<timestamp>_<system>_<split>/`: `config.json` (system, models, k, git commit), `prompts/`, `predictions.jsonl` (per query: gold, candidates, returned matches with evidence, cost, latency) and `metrics.json`. `results.md` is generated from `runs/` and is never edited by hand. Every LLM call is cached on disk (key = model + prompt + params), so reruns are free.
+**Score systems** (writes `runs/<time>_<system>_<split>/`, then rebuilds `results.md` and the charts):
+```bash
+python -m exactmatch.evaluate --system s0 s3 s4 --split test --limit 300
+python -m exactmatch.evaluate --system s3 --split test            # full test split
+python -m exactmatch.errors                                      # error buckets for the latest validation run
+```
 
-**Budget:** $50 of Fireworks credits. Per-candidate verification with a small model costs on the order of a dollar per full test run. Large-model and listwise runs cost more or less accordingly. Check spend before any large-model or fine-tuning job.
+**Try a real link:**
+```bash
+python -m exactmatch.app                 # opens the demo page: paste a product URL
+```
+The link demo matches against a live catalog of 164 current listings. Note that it uses its own rules-plus-model matcher (`demo_match.py`), not the benchmarked `s3`/`s4`, and that some retailers (e.g. Best Buy) block scripted page fetches.
 
----
+**Tests** (no API key needed):
+```bash
+for t in test_evaluate test_report test_errors test_engine test_llm test_ingest test_demo test_normalize; do python -m tests.$t; done
+```
 
-## Repo layout
+## Repository layout
 
 ```
 exactmatch/
-  schema.py       # ProductRecord, Query, Match, Result: shared, change only with the whole team
-  data.py         # WDC → catalog + queries (A)
-  evaluate.py     # scorer + run logging (A)
-  report.py       # results.md from runs/ (A)
-  llm.py          # Fireworks client: retries, JSON parsing, token + cost accounting, disk cache (B)
-  retrieval.py    # BM25 + embedding + model-number index over the catalog → top-k candidates (B)
-  systems/        # s0.py, s0_big.py, s1.py, ...: find_matches(query, k) -> Result (B)
-  ingest.py       # URL → ProductRecord (C)
-  normalize.py    # brand / model-number / unit extraction + normalization (C)
-  app.py          # demo: paste URL → matches with evidence (C)
-tests/
-data/             # raw downloads git-ignored; ingest_eval.jsonl + live_catalog.jsonl committed
-runs/             # run outputs (commit the final ones)
+  schema.py        shared types: ProductRecord, Query, Match, Result
+  data.py          WDC download, catalog, splits, leak checks
+  llm.py           Fireworks client: retries, cache, cost, reasoning_effort, JSON
+  retrieval.py     BM25 + Qwen3 embeddings + model-number index
+  systems/         s0 … s4, s4_groups, s0_big, s0_claude: one find_matches() each
+  evaluate.py      scorer + run logging (parallel)
+  report.py        results.md + charts from runs/
+  errors.py        error buckets (validation only)
+  ingest.py        URL → ProductRecord
+  normalize.py     brand / model-number / unit normalization
+  app.py           link demo server (+ demo_match.py, demo_page.html)
+data/              live demo catalog and labeled ingestion pages (WDC itself is downloaded, not committed)
+runs/              every scored run: config, prompts, predictions, metrics (runs/_invalid: set-aside runs, with reasons)
+results/           charts + error-analysis reports
+results.md         generated results tables
+docs/FINAL.md      full write-up: dataset choice, methods, all numbers, honesty audit, timeline
+docs/PLAN.md       the build plan from the day (historical)
+tests/             8 offline test suites
 ```
 
----
+## Honesty
 
-## Team of three: who does what
-
-The split follows the pipeline stages, so each person owns separate files. See PLAN.md for the exact interfaces.
-
-| | **A: data, eval and results** (Mihir) | **B: matching engine** | **C: link ingestion, demo and story** |
-|---|---|---|---|
-| **Owns** | `data.py`, `evaluate.py`, `report.py` | `llm.py`, `retrieval.py`, `systems/` | `schema.py`, `ingest.py`, `normalize.py`, `app.py` |
-| **Early** | WDC loader + scorer ✅ | Fireworks client with caching and cost tracking; BM25 retrieval; `s0` + `s0_big` | URL fetch + JSON-LD/meta extraction with LLM fallback |
-| **Next** | Score `s0` + `s0_big` on **test**; retrieval recall@k | `s1` hybrid retrieval + structured prompt, then `s2` few-shot | `normalize.py` (model numbers, units, brands) for `s1`/`s3`; label ~25 URLs and build the live catalog |
-| **Then** | Error analysis on **valid**, fed back to B and C; final runs | `s3` rules + listwise, then `s4` cascade; start the `s5` fine-tune early if attempting it | Demo app (URL → matches + evidence, baseline vs ours); business numbers |
-| **Last hour** | `results.md`, README results section | Freeze systems, help with final runs | Slides + demo script, rehearse |
-
-**Ground rules**
-- Branch per person (`a/...`, `b/...`, `c/...`), small PRs into `main` often. Merge `main` into your branch before starting each new system.
-- **Only A edits `evaluate.py`** once the baseline is scored.
-- Nobody looks at **test** errors. Tune on valid.
-- Commit the final `runs/` directories so every number in `results.md` can be traced back to its run.
-
----
-
-## Timeline (submissions close 4:30 PM sharp)
-
-| By | Milestone |
-|---|---|
-| 1:15 | `schema.py` on main; `data.py` + scorer working; `s0` scored on test (critical path) |
-| 2:00 | `s1` scored; `ingest.py` working on real URLs |
-| 2:45 | `s2` + `s3` scored; live catalog + ingestion eval done; demo runs end to end |
-| 3:15 | `s4` scored; `s5` only if the fine-tune is already running |
-| **3:30** | **Feature freeze.** Final runs, generate `results.md` |
-| 4:15 | Demo, slides and README results done; submit |
+During the day we caught several things that would have made the numbers look better than they are. All are fixed or disclosed in [docs/FINAL.md, section 9](docs/FINAL.md#9-honesty-problems-we-found-and-when):
+- **Test split used repeatedly:** we scored the test split during development, not only once at the end.
+- **`s4_groups`:** it uses the labels that define the correct answers, so it is reported separately.
+- **Broken baseline set aside:** a first baseline (Nemotron) was set aside because half its calls timed out.
+- **Fake latency:** cached reruns report near-zero latency, so the final runs used an empty cache.
+- **Unequal pipelines:** Claude ran the baseline pipeline, not our harness.

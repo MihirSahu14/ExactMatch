@@ -1,4 +1,4 @@
-"""Scorer (single source of truth) + run logging. See PLAN.md section 2. Only A edits this file.
+"""Scorer (single source of truth) + run logging. See docs/PLAN.md section 2. Only A edits this file.
 
     python -m exactmatch.evaluate --system s0 --split valid --limit 200
     python -m exactmatch.evaluate --system s0 --split test

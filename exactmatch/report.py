@@ -18,7 +18,7 @@ HEADER = ("| System | Queries (no match) | F1 | ΔF1 vs s0 | Precision | Recall 
 
 # Validated categorical slots 1-3 (dataviz palette, all-pairs CVD-safe); aqua is <3:1, so every mark is labeled.
 # Slot 4 (yellow) marks s4_groups: it uses the catalog's product groups, which define gold, so it never counts
-# as "ours" in the headline (FINAL.md section 9).
+# as "ours" in the headline (docs/FINAL.md section 9).
 FAMILIES = {"Our pipeline (open model)": "#2a78d6", "Big open model": "#eb6834", "Closed frontier (Claude)": "#1baf7a",
             "Uses catalog groups (separate)": "#eda100"}
 INK, INK2, MUTED, GRID, AXIS, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"

@@ -4,7 +4,7 @@
     python -m exactmatch.errors runs/<run dir>       # a specific valid run
 
 Writes results/errors_<run>.md: counts per bucket plus a few examples each, for B and C to act on.
-Refuses test runs: nobody looks at test errors (PLAN.md rule 1).
+Refuses test runs: nobody looks at test errors (docs/PLAN.md rule 1).
 """
 import json
 import re
