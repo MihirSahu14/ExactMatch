@@ -112,12 +112,36 @@ Scorer self-check: `python -m tests.test_evaluate`.
 
 ---
 
-## 3. Roles and file ownership
+## 3. Common code already on `main` (pull before you start)
+
+| File | What it gives you | Check |
+|---|---|---|
+| `exactmatch/schema.py` | `ProductRecord`, `Query`, `Match`, `Result` | n/a |
+| `exactmatch/data.py` | `load_catalog()`, `load_queries(split)`; downloads WDC on first use | `python -m exactmatch.data` |
+| `exactmatch/evaluate.py` | the scorer + run logging | `python -m tests.test_evaluate` |
+| `exactmatch/report.py` | `python -m exactmatch.report` builds `results.md` from `runs/` | `python -m tests.test_report` |
+| `exactmatch/llm.py` | the Fireworks client used by both B and C (see below) | `python -m tests.test_llm` (offline) |
+| `requirements.txt`, `.env.example` | `pip install -r requirements.txt`; copy `.env.example` to `.env` and add your key | n/a |
+
+**`llm.py` usage:**
+```python
+from exactmatch import llm
+r = llm.chat(llm.SMALL, [{"role": "user", "content": "..."}], json_mode=True)  # temperature 0 by default
+r.json        # parsed dict or None (tolerates code fences / prose)
+r.text, r.tokens, r.cost_usd, r.cached
+vecs, cost = llm.embed(["search_query: sony kdl46v5100", ...])  # nomic-embed-text-v1.5, batches of 256
+```
+- **Thread-safe**, and retries on 429/5xx. It reads `FIREWORKS_API_KEY` from your environment or from `.env`.
+- **Disk cache** in `.cache/llm/` (git-ignored). A cache hit returns the *original* cost, so metrics stay identical on reruns while no money is spent.
+- **Default models:** `llm.SMALL` = Nemotron 3.5 Lightning 30B-A3B ($0.05 in / $0.20 out per 1M tokens) and `llm.BIG` = Kimi K3 ($3 / $15). B picks the final pair. Any other model must be added to `llm.PRICES`, or its cost falls back to $0.90 per 1M tokens.
+- **Putting cost into a `Result`:** sum `r.cost_usd` and `r.tokens` over the calls made for that query.
+
+## 4. Roles and file ownership
 
 | Role | Owns | Branch |
 |---|---|---|
 | **A: data, eval and results** (Mihir) | `data.py`, `evaluate.py`, `report.py` | `a/data-eval` |
-| **B: matching engine** | `llm.py`, `retrieval.py`, `systems/` | `b/...` |
+| **B: matching engine** | `retrieval.py`, `systems/`; changes to `llm.py` (shared, so tell C) | `b/...` |
 | **C: ingestion, demo and story** | `ingest.py`, `normalize.py`, `app.py` | `c/...` |
 
 - `schema.py` and `data.py` are already on `main`, so build against the real data. Data is not committed; `data.py` downloads it to `data/raw/` on first use.
@@ -126,7 +150,7 @@ Scorer self-check: `python -m tests.test_evaluate`.
 
 ---
 
-## 4. Ground rules
+## 5. Ground rules
 1. **Nobody looks at test errors.** Tune on valid only.
 2. **Only A edits `evaluate.py`** once the baseline is scored.
 3. Every LLM call is cached (key = model + prompt hash). Never commit `FIREWORKS_API_KEY`. The budget is $50.
@@ -135,7 +159,7 @@ Scorer self-check: `python -m tests.test_evaluate`.
 
 ---
 
-## 5. Timeline (submissions close 4:30 PM sharp)
+## 6. Timeline (submissions close 4:30 PM sharp)
 
 | By | Milestone |
 |---|---|
