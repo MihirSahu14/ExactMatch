@@ -90,4 +90,12 @@ assert llm.parse_json("no json here") is None
 assert llm.strip_think("<think>hmm, V vs W</think>\nno") == "no"
 assert llm.strip_think("<think>cut off by max_tok") == ""
 assert all(r["budget"] > 0 for r in llm.REASONING.values() if r["effort"] != "none"), "thinking models need a budget"
+# --- s4_groups: answer snaps to the top match's catalog group; strays outside it are dropped; query id never returned
+from exactmatch.schema import Match, Result  # noqa: E402
+from exactmatch.systems import s4_groups  # noqa: E402
+G = frozenset({"a", "b", "c"})
+s4_groups._groups.update({"a": G, "b": G, "c": G, "x": frozenset({"x"})})
+r = s4_groups.snap(Result([Match("b", .95, "code"), Match("x", .7, "?")], ["a", "b", "x"]), "c")
+assert [m.product_id for m in r.matches] == ["b", "a"], r
+assert s4_groups.snap(Result([], []), "q").matches == []
 print("ok")
