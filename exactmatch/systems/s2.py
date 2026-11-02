@@ -37,9 +37,9 @@ def _overlap(a: ProductRecord, b: ProductRecord) -> float:
 def _evidence(a: ProductRecord, b: ProductRecord, same: bool) -> str:
     ca, cb = retrieval.model_codes(a.title), retrieval.model_codes(b.title)
     if same:
-        shared = sorted(ca & cb, key=len, reverse=True)
+        shared = sorted(ca & cb, key=lambda x: (-len(x), x))
         return f"same model number {shared[0].upper()}" if shared else "same product, described differently"
-    only_a, only_b = sorted(ca - cb, key=len, reverse=True), sorted(cb - ca, key=len, reverse=True)
+    only_a, only_b = (sorted(ca - cb, key=lambda x: (-len(x), x)), sorted(cb - ca, key=lambda x: (-len(x), x)))
     if only_a and only_b:
         return f"different model numbers: {only_a[0].upper()} vs {only_b[0].upper()}"
     ta, tb = retrieval.tokenize(a.title), retrieval.tokenize(b.title)

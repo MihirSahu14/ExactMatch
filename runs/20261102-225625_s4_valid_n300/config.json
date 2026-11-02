@@ -1,0 +1,28 @@
+{
+  "system": "s4",
+  "split": "valid",
+  "k": 20,
+  "limit": 300,
+  "workers": 8,
+  "git_commit": "0b32083-dirty",
+  "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+  "price_per_1m_in_out": [
+    0.3,
+    1.2
+  ],
+  "retrieval": "hybrid rrf(bm25, embed, code)",
+  "embed_model": "accounts/fireworks/models/qwen3-embedding-8b",
+  "judge_depth": 30,
+  "verify": "cascade: s3 listwise on small model, escalate uncertain queries to big model",
+  "threshold": 0.5,
+  "temperature": 0.0,
+  "max_tokens": 1200,
+  "reasoning_effort": "none",
+  "big_model": "accounts/fireworks/models/kimi-k3",
+  "big_reasoning_effort": "none",
+  "big_price_per_1m_in_out": [
+    3.0,
+    15.0
+  ],
+  "escalate_if": "any pick conf < 0.9, or no picks but a candidate shares a model code, or parse fail"
+}
