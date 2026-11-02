@@ -24,15 +24,27 @@ from pathlib import Path
 import requests
 
 BASE_URL = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
-SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/llama-v3p1-8b-instruct")
-BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/llama-v3p1-70b-instruct")
+_ENV = Path(__file__).resolve().parent.parent / ".env"
+if _ENV.exists():  # KEY=value lines; real env vars win
+    for _line in _ENV.read_text().splitlines():
+        _k, _, _v = _line.partition("=")
+        if _k.strip() and _v.strip() and not _k.lstrip().startswith("#"):
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"'))
+
+# Llama 3.1 is no longer served (404). Every model listed on 2026-11-02 is a reasoning model:
+# pass reasoning_effort="none" for short answers, or they spend the whole max_tokens thinking and return "".
+SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b")
+BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/kimi-k3")
 EMBED = os.environ.get("EM_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
 
-# USD per 1M tokens (input, output). Verify against https://fireworks.ai/pricing and add the models you use.
+# USD per 1M tokens (input, output), from docs.fireworks.ai/serverless/pricing on 2026-11-02.
 # Unknown models fall back to DEFAULT_PRICE and the run's CONFIG records which price was used.
 PRICES: dict[str, tuple[float, float]] = {
-    "accounts/fireworks/models/llama-v3p1-8b-instruct": (0.20, 0.20),
-    "accounts/fireworks/models/llama-v3p1-70b-instruct": (0.90, 0.90),
+    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": (0.05, 0.20),
+    "accounts/fireworks/models/glm-5p3-flash": (0.15, 0.50),
+    "accounts/fireworks/models/deepseek-v4p1-flash": (0.30, 1.20),
+    "accounts/fireworks/models/glm-5p3": (1.40, 4.40),
+    "accounts/fireworks/models/kimi-k3": (3.00, 15.00),
     "nomic-ai/nomic-embed-text-v1.5": (0.008, 0.0),
 }
 DEFAULT_PRICE = (0.90, 0.90)
@@ -115,7 +127,10 @@ def _post(path: str, payload: dict) -> dict:
         _session.s = requests.Session()
     for attempt in range(MAX_RETRIES):
         try:
-            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=TIMEOUT_S,
+            # Some serverless requests hang (Nemotron: ~1 in 6 at 16-way concurrency, measured 2026-11-02).
+            # A timeout sized to the request (10s for a 3-token answer) retries them fast instead of waiting 60s.
+            timeout = min(TIMEOUT_S, 10 + payload.get("max_tokens", 500) / 50)
+            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=timeout,
                                 headers={"Authorization": f"Bearer {key}"})
             if r.status_code == 200:
                 return r.json()
@@ -132,11 +147,13 @@ def _post(path: str, payload: dict) -> dict:
 # ---------------------------------------------------------------- public API
 
 def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.0, max_tokens: int = 256,
-         json_schema: dict | None = None, seed: int | None = None) -> Completion:
+         json_schema: dict | None = None, seed: int | None = None,
+         reasoning_effort: str | None = None) -> Completion:
     """One chat completion. `messages` may be a plain string (sent as a single user message).
 
     json_schema: if given, asks Fireworks for schema-constrained JSON output. Parse with parse_json().
     seed: vary it to get distinct cached samples at temperature > 0 (self-consistency voting).
+    reasoning_effort: "none" | "low" | "medium" | "high". GLM 5.3 rejects "none" (thinking-only).
     """
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
@@ -145,6 +162,8 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
         payload["response_format"] = {"type": "json_object", "schema": json_schema}
     if seed is not None:
         payload["seed"] = seed
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
 
     cache = _get_cache()
     k = _key("chat", payload)
