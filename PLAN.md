@@ -92,13 +92,23 @@ class Result:                        # one per query, returned by every system
 | C | `ingest.ingest(url: str) -> ProductRecord` |
 | C | `normalize.py`: `model_numbers(text) -> list[str]`, `normalize_brand(s) -> str`, unit/size helpers |
 
-To run the scorer:
+To run the scorer (`exactmatch/evaluate.py`, on `main`):
 ```bash
-python -m exactmatch.evaluate --system s0 --split test
+python -m exactmatch.evaluate --system s0 --split valid --limit 200   # cheap check: random 200 queries
+python -m exactmatch.evaluate --system s0 --split test                # final number only
 ```
-It loads `exactmatch.systems.s0`, calls `find_matches` for each query, times each call, and writes `runs/<timestamp>_<system>_<split>/` with `config.json`, `prompts/`, `predictions.jsonl` and `metrics.json`.
+It loads `exactmatch.systems.s0`, calls `find_matches` for each query, times each call, and writes `runs/<timestamp>_<system>_<split>[_nN]/` with `config.json`, `prompts/`, `predictions.jsonl` and `metrics.json`. The default split is `valid`.
 
-**Metrics:** match P/R/F1 (micro-averaged over query × returned listing), exact-set accuracy, retrieval recall@k, cost per 1k lookups, and mean/p95 latency.
+**Contract for B's system modules** (`exactmatch/systems/<id>.py`):
+- `find_matches(query, k=20) -> Result`, where `Result.candidate_ids` is the retrieval top-k. It is called from **8 threads at once** (`--workers 8`), so it must be thread-safe.
+- Optional module-level `CONFIG = {...}` (model ids, temperature, thresholds) is saved into `config.json`.
+- Optional module-level `PROMPTS = {"name": template}` dict is saved into `prompts/`.
+- If a call raises an exception, the query counts as "no matches" and the traceback is logged under `errors`. The run does not stop.
+- Returning `query.id` is ignored by the scorer, but avoid it anyway.
+
+**Metrics** (`metrics.json`): `precision`, `recall`, `f1` (micro-averaged over query × returned listing), `exact_set_acc`, `no_match_acc` (share of no-match queries where we correctly returned nothing), `recall_at_k`, `false_matches`, `missed_matches`, `cost_per_1k_usd`, `tokens`, `latency_mean_s`, `latency_p95_s`, `errors`.
+
+Scorer self-check: `python -m tests.test_evaluate`.
 
 ---
 
