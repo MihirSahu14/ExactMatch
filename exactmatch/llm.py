@@ -107,17 +107,25 @@ def _cached(body, call):
 
 
 def chat(model: str, messages: list[dict], temperature: float = 0.0, max_tokens: int = 512,
-         json_mode: bool = False) -> Reply:
+         json_mode: bool = False, reasoning_effort: str | None = None) -> Reply:
+    """reasoning_effort: "none" | "low" | "medium" | "high" for reasoning models (Nemotron, Kimi, ...).
+    Nemotron thinks ~500 tokens by default; "none" answers directly."""
     body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
 
     def call():
         r = _post("chat/completions", body)
+        choice = r["choices"][0]
+        text = choice["message"].get("content") or ""
+        if not text and choice.get("finish_reason") == "length":  # not cached: raise max_tokens or lower reasoning
+            raise RuntimeError(f"{model}: hit max_tokens={max_tokens} before answering (reasoning tokens?)")
         u = r.get("usage", {})
         pt, ct = u.get("prompt_tokens", 0), u.get("completion_tokens", 0)
-        return {"text": r["choices"][0]["message"].get("content") or "", "tokens": pt + ct,
-                "cost_usd": _cost(model, pt, ct)}
+        # ponytail: ignores Fireworks' cheaper cached-input rate, so cost is a slight overestimate
+        return {"text": text, "tokens": pt + ct, "cost_usd": _cost(model, pt, ct)}
 
     out, hit = _cached(body, call)
     return Reply(out["text"], out["tokens"], out["cost_usd"], hit)

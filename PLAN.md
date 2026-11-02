@@ -131,6 +131,8 @@ r.json        # parsed dict or None (tolerates code fences / prose)
 r.text, r.tokens, r.cost_usd, r.cached
 vecs, cost = llm.embed(["search_query: sony kdl46v5100", ...])  # nomic-embed-text-v1.5, batches of 256
 ```
+- **Tested live on 2026-11-02:** chat with both default models, plus embeddings (768-dim).
+- **Nemotron and Kimi are reasoning models.** Nemotron thinks for about 500 tokens by default; pass `reasoning_effort="none"` to answer directly (6 tokens instead of 540). An empty answer cut off by `max_tokens` raises an error, so the scorer logs it instead of counting a silent "no match".
 - **Thread-safe**, and retries on 429/5xx. It reads `FIREWORKS_API_KEY` from your environment or from `.env`.
 - **Disk cache** in `.cache/llm/` (git-ignored). A cache hit returns the *original* cost, so metrics stay identical on reruns while no money is spent.
 - **Default models:** `llm.SMALL` = Nemotron 3.5 Lightning 30B-A3B ($0.05 in / $0.20 out per 1M tokens) and `llm.BIG` = Kimi K3 ($3 / $15). B picks the final pair. Any other model must be added to `llm.PRICES`, or its cost falls back to $0.90 per 1M tokens.
