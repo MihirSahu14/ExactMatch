@@ -81,7 +81,8 @@ def cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
 class _Cache:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        # timeout=60: several eval processes share this file; the default 5s wait raises "database is locked"
+        self._db = sqlite3.connect(path, check_same_thread=False, timeout=60)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
         self._lock = threading.Lock()
@@ -121,8 +122,7 @@ _session = threading.local()
 def _post(path: str, payload: dict) -> dict:
     """POST to Fireworks with exponential backoff on rate limits, server errors and network errors."""
     key = os.environ.get("FIREWORKS_API_KEY")
-    if not key:
-        raise RuntimeError("FIREWORKS_API_KEY is not set")
+    headers = {"Authorization": f"Bearer {key}"} if key else {}  # no key: a network secret may inject it
     if not hasattr(_session, "s"):
         _session.s = requests.Session()
     for attempt in range(MAX_RETRIES):
@@ -130,11 +130,12 @@ def _post(path: str, payload: dict) -> dict:
             # Some serverless requests hang (Nemotron: ~1 in 6 at 16-way concurrency, measured 2026-11-02).
             # A timeout sized to the request (10s for a 3-token answer) retries them fast instead of waiting 60s.
             timeout = min(TIMEOUT_S, 10 + payload.get("max_tokens", 500) / 50)
-            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=timeout,
-                                headers={"Authorization": f"Bearer {key}"})
+            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=timeout, headers=headers)
             if r.status_code == 200:
                 return r.json()
             retryable = r.status_code == 429 or r.status_code >= 500
+            if r.status_code == 401:
+                raise RuntimeError("Fireworks 401: set FIREWORKS_API_KEY (or a network secret for api.fireworks.ai)")
             if not retryable or attempt == MAX_RETRIES - 1:
                 raise RuntimeError(f"Fireworks {r.status_code}: {r.text[:500]}")
         except (requests.ConnectionError, requests.Timeout):
@@ -172,10 +173,15 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
         return Completion(**hit, cached=True)
 
     resp = _post("/chat/completions", payload)
+    choice = resp["choices"][0]
+    text = choice["message"].get("content") or ""
+    if not text and choice.get("finish_reason") == "length":
+        # A reasoning model spent max_tokens thinking. Raise (not cached) so the scorer logs an error
+        # instead of silently scoring "" as "no". Fix: reasoning_effort="none" or a bigger max_tokens.
+        raise RuntimeError(f"{model}: hit max_tokens={max_tokens} before answering (reasoning tokens?)")
     usage = resp.get("usage") or {}
     pt, ct = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-    out = {"text": resp["choices"][0]["message"].get("content") or "", "prompt_tokens": pt,
-           "completion_tokens": ct, "cost_usd": cost(model, pt, ct)}
+    out = {"text": text, "prompt_tokens": pt, "completion_tokens": ct, "cost_usd": cost(model, pt, ct)}
     cache.put(k, out)
     return Completion(**out)
 
@@ -217,7 +223,7 @@ def parse_json(text: str) -> dict | None:
 if __name__ == "__main__":
     if "--models" in sys.argv:
         r = requests.get(f"{BASE_URL}/models", timeout=TIMEOUT_S,
-                         headers={"Authorization": f"Bearer {os.environ['FIREWORKS_API_KEY']}"})
+                         headers={"Authorization": f"Bearer {os.environ['FIREWORKS_API_KEY']}"} if os.environ.get("FIREWORKS_API_KEY") else {})
         r.raise_for_status()
         for m in sorted(d["id"] for d in r.json().get("data", [])):
             print(m)
