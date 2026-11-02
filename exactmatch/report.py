@@ -68,7 +68,7 @@ def build(runs: Path = RUNS, charts: list[str] = ()) -> str:
             ratio = claude["cost_per_1k_usd"] / b["cost_per_1k_usd"] if b["cost_per_1k_usd"] else None
             out += [f"**Headline ({head[0]}, {rows[best]['queries']} queries):** best system of ours `{best}` "
                     f"reaches F1 {b['f1']:.3f} vs Claude Opus 5.5 at {claude['f1']:.3f} "
-                    f"({b['f1'] / claude['f1']:.0%} of its F1)"
+                    f"({b['f1'] / claude['f1']:.1%} of its F1)"
                     + (f" at {ratio:.0f}x lower cost per lookup." if ratio else "."), ""]
     if charts:
         out += ["## Charts", ""] + [f"![{c}](results/{c})" for c in charts] + [""]
