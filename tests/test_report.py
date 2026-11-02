@@ -6,11 +6,12 @@ from pathlib import Path
 from exactmatch import report
 
 with tempfile.TemporaryDirectory() as tmp:
-    for name, system, f1 in [("20260101-000000_s0_test", "s0", 0.5), ("20260101-000001_s1_test", "s1", 0.1),
-                             ("20260101-000002_s1_test", "s1", 0.7)]:  # later s1 run must win
+    for name, system, f1, limit in [("20260101-000000_s0_test", "s0", 0.5, None), ("20260101-000001_s1_test", "s1", 0.1, None),
+                                    ("20260101-000002_s1_test", "s1", 0.7, None),  # later s1 run must win
+                                    ("20260101-000003_s1_test_n300", "s1", 0.6, 300)]:  # full and sampled runs side by side
         d = Path(tmp) / name
         d.mkdir()
-        (d / "config.json").write_text(json.dumps({"system": system, "split": "test", "limit": None}))
+        (d / "config.json").write_text(json.dumps({"system": system, "split": "test", "limit": limit}))
         (d / "metrics.json").write_text(json.dumps({
             "queries": 10, "queries_no_match": 3, "f1": f1, "precision": f1, "recall": f1, "no_match_acc": 1.0,
             "recall_at_k": 0.9, "k": 20, "false_matches": 1, "missed_matches": 2, "cost_per_1k_usd": 0.05,
