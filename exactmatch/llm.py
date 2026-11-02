@@ -109,17 +109,17 @@ _session = threading.local()
 def _post(path: str, payload: dict) -> dict:
     """POST to Fireworks with exponential backoff on rate limits, server errors and network errors."""
     key = os.environ.get("FIREWORKS_API_KEY")
-    if not key:
-        raise RuntimeError("FIREWORKS_API_KEY is not set")
+    headers = {"Authorization": f"Bearer {key}"} if key else {}  # no key: a network secret may inject it
     if not hasattr(_session, "s"):
         _session.s = requests.Session()
     for attempt in range(MAX_RETRIES):
         try:
-            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=TIMEOUT_S,
-                                headers={"Authorization": f"Bearer {key}"})
+            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=TIMEOUT_S, headers=headers)
             if r.status_code == 200:
                 return r.json()
             retryable = r.status_code == 429 or r.status_code >= 500
+            if r.status_code == 401:
+                raise RuntimeError("Fireworks 401: set FIREWORKS_API_KEY (or a network secret for api.fireworks.ai)")
             if not retryable or attempt == MAX_RETRIES - 1:
                 raise RuntimeError(f"Fireworks {r.status_code}: {r.text[:500]}")
         except (requests.ConnectionError, requests.Timeout):
@@ -198,7 +198,7 @@ def parse_json(text: str) -> dict | None:
 if __name__ == "__main__":
     if "--models" in sys.argv:
         r = requests.get(f"{BASE_URL}/models", timeout=TIMEOUT_S,
-                         headers={"Authorization": f"Bearer {os.environ['FIREWORKS_API_KEY']}"})
+                         headers={"Authorization": f"Bearer {os.environ['FIREWORKS_API_KEY']}"} if os.environ.get("FIREWORKS_API_KEY") else {})
         r.raise_for_status()
         for m in sorted(d["id"] for d in r.json().get("data", [])):
             print(m)
