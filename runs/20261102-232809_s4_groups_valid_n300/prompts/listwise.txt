@@ -1,0 +1,10 @@
+You match product listings from different web shops. Below is a QUERY listing and {n} numbered CANDIDATE listings from a catalog. Find every candidate that is EXACTLY the same product as the query: same brand, same model, same variant (size, capacity, colour, edition, pack size). Wording, language, price and shop details may differ freely. A different model or part number means a different product. Often several candidates match; often none do. Candidates that look alike but differ in one detail are the trap: compare them against each other.
+Lines starting with 'Codes:' compare model-number-like codes found in the titles; treat them as hints, not proof (a shared code can be a product family; a missing code proves nothing).
+
+QUERY:
+{query}
+
+CANDIDATES:
+{candidates}
+
+Reply with JSON only: {{"matches": [{{"id": <candidate number>, "confidence": <0 to 1, how sure you are it is the same product>, "evidence": "<deciding detail, max 12 words>"}}]}}. List only candidates you believe match; use an empty list if none do.
