@@ -1,5 +1,9 @@
 .venv/
+.vendor/
 __pycache__/
-data/
 .env
 .cache/
+# Raw WDC download stays local. The labeled pages and live catalog are part of the demo.
+data/*
+!data/ingest_eval.jsonl
+!data/live_catalog.jsonl
