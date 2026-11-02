@@ -46,7 +46,15 @@ def score_json(text: str) -> tuple[float, str]:
         conf = min(1.0, max(0.0, float(j.get("confidence", 0))))
     except (TypeError, ValueError):
         conf = 0.0
-    p = conf if j.get("match") is True else (1 - conf if j.get("match") is False else 0.0)
+    # The prompt asks for confidence = "how sure they are the same product", but models also read it as certainty
+    # in their own answer ("no, 0.95"). Either way a "no" must never score above 0.5: min(conf, 1-conf) is the
+    # match probability under both readings.
+    if j.get("match") is True:
+        p = conf
+    elif j.get("match") is False:
+        p = min(conf, 1 - conf)
+    else:
+        p = 0.0
     return p, str(j.get("evidence", ""))[:200]
 
 

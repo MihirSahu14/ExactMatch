@@ -1,0 +1,7 @@
+Listing A:
+{a}
+
+Listing B:
+{b}
+
+Reply with JSON only: {{"match": true|false, "confidence": <0 to 1>, "evidence": "<the deciding detail, max 15 words>"}}
