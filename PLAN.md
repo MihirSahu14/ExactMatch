@@ -23,9 +23,19 @@
 - There are **no live URLs** in the benchmark files. The 2020 URLs exist only in a 4.3 GB file and are mostly dead, so we don't use them.
 
 ### How the benchmark works
-- **Catalog** = all offers in train + valid + test.
-- **Queries** = test offers (1,000). Tune on valid queries only.
-- **Gold** for a query = all *other* catalog offers with the same `cluster_id`. If the product has only one offer, gold is empty, which tests "return nothing".
+*(Implemented in `exactmatch/data.py`; run `python -m exactmatch.data` for the stats and self-check.)*
+
+- **Catalog** = the 2,841 WDC train offers (500 products). Valid and test queries are **never in the catalog**.
+- **Gold** for a query = the catalog offers with the same `cluster_id`.
+- **"No match" queries:** WDC's "100% unseen" test file has 500 extra products that are not in the catalog, so their gold is empty. Half of those products go to valid and half to test.
+
+| Split | Queries | With no match | Avg gold per query |
+|---|---|---|---|
+| train | 2,841 (catalog items themselves) | 0 | 6.0 |
+| valid | 1,496 | 500 | 3.8 |
+| test | 1,500 | 500 | 3.8 |
+
+- **Train queries are catalog items.** Their gold excludes themselves, and **systems must never return `query.id`**.
 - **`cluster_id` never leaves `data.py`.** If systems could see it, the answer would leak.
 - Few-shot examples and fine-tuning data come from **train only**.
 
@@ -36,7 +46,7 @@ C builds a small **live catalog**: about 50–100 current listings (a few produc
 
 ## 2. Shared interfaces: `exactmatch/schema.py`
 
-Commit this file first, exactly as below. Everyone imports it from here.
+This file is on `main` (`exactmatch/schema.py`). Everyone imports it from there.
 
 ```python
 from dataclasses import dataclass, field
@@ -98,9 +108,10 @@ It loads `exactmatch.systems.s0`, calls `find_matches` for each query, times eac
 |---|---|---|
 | **A: data, eval and results** (Mihir) | `data.py`, `evaluate.py`, `report.py` | `a/data-eval` |
 | **B: matching engine** | `llm.py`, `retrieval.py`, `systems/` | `b/...` |
-| **C: ingestion, demo and story** | `schema.py`, `ingest.py`, `normalize.py`, `app.py` | `c/...` |
+| **C: ingestion, demo and story** | `ingest.py`, `normalize.py`, `app.py` | `c/...` |
 
-- B and C can build against stub data until `data.py` lands: a few hand-made `ProductRecord`s are enough.
+- `schema.py` and `data.py` are already on `main`, so build against the real data. Data is not committed; `data.py` downloads it to `data/raw/` on first use.
+- The raw data is real web text: about 64% of offers have no brand, about 25% have no description, and prices come in mixed currencies.
 - The systems to build (`s0`–`s5`) are the same as in README.md: BM25 + zero-shot → hybrid retrieval + structured prompt → few-shot → rules + listwise → cascade → optional LoRA.
 
 ---
