@@ -33,8 +33,9 @@ SPARSE = "<html><head><title>Shop</title></head><body><p>Black headphones on sal
 calls = []
 
 
-def fake_chat(model, messages, temperature=0.0, max_tokens=512, json_mode=False, reasoning_effort=None):
-    calls.append({"model": model, "json_mode": json_mode, "reasoning_effort": reasoning_effort, "max_tokens": max_tokens})
+def fake_chat(messages, model=None, temperature=0.0, max_tokens=256, json_schema=None, seed=None, reasoning_effort=None):
+    # Same signature as llm.chat on main (messages first, model as keyword).
+    calls.append({"model": model, "json_schema": json_schema, "reasoning_effort": reasoning_effort, "max_tokens": max_tokens})
 
     class Reply:
         text = '{"title":"Sony WH-1000XM5","brand":"Sony","description":"Noise canceling","price":348,"currency":"USD","attrs":{"color":"Black"}}'
@@ -51,8 +52,8 @@ def fake_chat(model, messages, temperature=0.0, max_tokens=512, json_mode=False,
 
 ingest.llm.chat = fake_chat
 filled = inspect(URL + "/sparse", SPARSE)
-assert calls and calls[0]["model"].endswith("nemotron-lightning-3p5-30b-a3b")
-assert calls[0]["json_mode"] is True and calls[0]["reasoning_effort"] == "none"
+assert calls and calls[0]["model"] == ingest.llm.SMALL
+assert calls[0]["json_schema"] is not None and calls[0]["reasoning_effort"] == "none"
 assert filled.llm_called is True
 assert filled.record.title == "Sony WH-1000XM5"
 assert filled.record.brand == "Sony"

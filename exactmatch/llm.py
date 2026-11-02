@@ -37,7 +37,7 @@ if _ENV.exists():  # KEY=value lines; real env vars win
 
 # Llama 3.1 is no longer served (404). Every model listed on 2026-11-02 is a reasoning model:
 # pass reasoning_effort="none" for short answers, or they spend the whole max_tokens thinking and return "".
-SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b")
+SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/deepseek-v4p1-flash")  # Nemotron hung on ~1 in 6 calls
 BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/kimi-k3")
 EMBED = os.environ.get("EM_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
 

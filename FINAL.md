@@ -180,15 +180,26 @@ None of these came from code reading test labels. We audited the code at the end
 ### Final checks
 There is no GitHub Actions workflow in the repo, so we ran these locally on the merged code before submitting:
 - the data loader's leak check (`python -m exactmatch.data`)
-- all 5 test suites (`test_evaluate`, `test_report`, `test_errors`, `test_engine`, `test_llm`)
+- all 8 test suites (`test_evaluate`, `test_report`, `test_errors`, `test_engine`, `test_llm`, `test_ingest`, `test_demo`, `test_normalize`)
 - an import check that all 8 systems expose `find_matches`
 - `compileall`
 
 All pass.
 
+### Link ingestion and the live demo (added at 15:52 by the third teammate, `c/ingestion`)
+- **`ingest.py`, link to product record:** reads schema.org JSON-LD, then Open Graph/meta tags, then the page title. Fireworks is called only when the title, brand or price is still missing. `normalize.py` fills the model number. It also refuses private or local addresses.
+  - Tested on a real abt.com Sony WH-CH730N page: 0.7s, no model call needed, model number `WHCH730NB`.
+- **`app.py` (`python -m exactmatch.app`), the demo page:** paste a URL, see the matching listings in a **live catalog of 164 current listings** (`data/live_catalog.jsonl`).
+  - For the Sony link it found no other listing of the same model, and rejected the WH-ULT900N, WH-1000XM5 and WH-1000XM6 with "model no. conflicts" evidence, at $0.0000003.
+- **Things to know before demoing it:**
+  - The demo uses its **own matcher**, `demo_match.py`: model-number rules first, then embeddings, then one Fireworks yes/no call per remaining candidate. It is **not** the benchmarked `s3`/`s4`, so its accuracy is not measured by the numbers above.
+  - The live catalog is from **one shop (abt.com)**. Cross-shop matching shows up only in the two prepared scenes (Sony.com and Crutchfield links), and those scenes run **rules only**, with no page fetch or model call, so the recording doesn't wait.
+  - **Best Buy blocks scripted requests:** the Keychron link fails with a connection reset. The demo page shows the error instead of crashing.
+- **Merge fixes:** the branch was cut from the old `main`, so its two model calls used the old client (`llm.chat(model, messages, json_mode=True)` and `reply.json`). They would have crashed on the first page that needed the model; the branch's tests didn't cover that path. We fixed both call sites to the merged client and changed the default small model from Nemotron to DeepSeek V4.1 Flash, the model every reported run used. All 8 test suites pass.
+
 ## 10. Not finished
 
-- **Link ingestion (`ingest.py`) and a live demo catalog.** These were the third team role, never committed. The live link check in section 8 used a browser instead.
+- **Using `s3`/`s4` inside the live demo** instead of the separate demo matcher, and a cross-shop live catalog.
 - **`s5`, a LoRA fine-tune** of the small model on train pairs. We didn't start it.
 - **Claude on the full test split, or inside our harness.** Either would make the comparison stricter.
 
@@ -205,7 +216,7 @@ python -m exactmatch.report                # results.md + results/*.png
 python -m exactmatch.errors                # error buckets for the latest validation run
 ```
 
-`s0` needs `EM_SMALL_MODEL=accounts/fireworks/models/deepseek-v4p1-flash` to match our runs; the library default is still Nemotron.
+The default small model is DeepSeek V4.1 Flash, the model all reported runs used. `python -m exactmatch.app` starts the link demo.
 
 ## 12. Timeline (PST)
 

@@ -107,13 +107,13 @@ def verify_with_fireworks(query: ProductRecord, item: ProductRecord):
         f"B: {item.brand or ''} {item.title} {item.model_number or ''}"
     )
     reply = llm.chat(
-        llm.SMALL,
         [{"role": "user", "content": prompt}],
-        json_mode=True,
+        model=llm.SMALL,
         max_tokens=80,
+        json_schema={"type": "object"},
         reasoning_effort="none",
     )
-    data = reply.json or {}
+    data = llm.parse_json(reply.text) or {}
     evidence = data.get("evidence") if isinstance(data.get("evidence"), str) else reply.text[:160]
     return bool(data.get("match")), evidence or "Fireworks returned no evidence", reply.cost_usd, reply.tokens
 

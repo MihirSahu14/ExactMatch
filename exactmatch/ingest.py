@@ -407,16 +407,16 @@ def _fill(info: Inspection) -> Inspection:
         f"URL: {record.url}\nKnown fields: {json.dumps(known)}\n\nPage text:\n{info.page_text[:4000]}"
     )
     reply = llm.chat(
-        llm.SMALL,
         [{"role": "user", "content": prompt}],
-        json_mode=True,
+        model=llm.SMALL,
         max_tokens=400,
+        json_schema={"type": "object"},
         reasoning_effort="none",
     )
     info.llm_called = True
     info.llm_cost_usd += reply.cost_usd
     info.llm_tokens += reply.tokens
-    data = reply.json or {}
+    data = llm.parse_json(reply.text) or {}
     # A raw <title> is usually "Product | Shop". Replace it. Keep JSON-LD and meta titles.
     weak_title = info.sources.get("title") in {None, "title"}
     if (not record.title or weak_title) and _name(data.get("title")):
