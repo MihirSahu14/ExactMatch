@@ -155,6 +155,12 @@ def make_charts(runs: Path = RUNS, out_dir: Path = CHARTS) -> list[str]:
         for x, (s, m) in zip(xs, rows):
             ax.annotate(s, (x, m["f1"]), xytext=(8, 4), textcoords="offset points", color=INK, fontsize=9)
         ax.set_xscale("log")
+        from matplotlib.ticker import FuncFormatter, LogLocator
+        unit = (lambda v: f"${v:g}") if "cost" in key else (lambda v: f"{v:g}s")
+        ax.xaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: unit(v)))
+        ax.xaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+        ax.set_xlim(min(xs) / 2, max(xs) * 2)
         ax.set_ylim(0, 1.08)
         ax.set_xlabel(label, color=INK2, fontsize=9)
         ax.set_ylabel("F1", color=INK2, fontsize=9)
