@@ -1,10 +1,10 @@
 {
-  "system": "s1",
+  "system": "s2",
   "split": "valid",
   "k": 20,
   "limit": 300,
   "workers": 8,
-  "git_commit": "1005237-dirty",
+  "git_commit": "7e6092a-dirty",
   "model": "accounts/fireworks/models/deepseek-v4p1-flash",
   "price_per_1m_in_out": [
     0.3,
@@ -18,9 +18,10 @@
     "embed": 1.0,
     "code": 1.0
   },
-  "verify": "pointwise zero-shot JSON {match, confidence, evidence}",
+  "verify": "pointwise few-shot JSON (3 hard positives + 4 hard negatives mined from train)",
   "threshold": 0.5,
   "temperature": 0.0,
   "max_tokens": 160,
-  "reasoning_effort": "none"
+  "reasoning_effort": "none",
+  "few_shot_seed": 0
 }
