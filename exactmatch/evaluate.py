@@ -2,6 +2,9 @@
 
     python -m exactmatch.evaluate --system s0 --split valid --limit 200
     python -m exactmatch.evaluate --system s0 --split test
+    python -m exactmatch.evaluate --system s0 s0_big s0_claude --split test --limit 300   # in parallel
+
+Several systems run in parallel threads; results.md and the charts are rebuilt afterwards.
 
 A system is exactmatch/systems/<id>.py with find_matches(query, k) -> Result,
 plus optional CONFIG (dict: model ids, temperature, ...) and PROMPTS (dict: name -> template),
@@ -120,12 +123,17 @@ def run(system: str, split: str, k: int = 20, limit: int | None = None, workers:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--system", required=True)
+    ap.add_argument("--system", required=True, nargs="+")
     ap.add_argument("--split", default="valid", choices=["train", "valid", "test"])
     ap.add_argument("--k", type=int, default=20)
     ap.add_argument("--limit", type=int, help="random sample of N queries (cheap runs)")
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
-    out = run(a.system, a.split, a.k, a.limit, a.workers)
-    print((out / "metrics.json").read_text())
-    print(f"saved to {out}")
+    with ThreadPoolExecutor(len(a.system)) as ex:
+        outs = list(ex.map(lambda s: run(s, a.split, a.k, a.limit, a.workers), a.system))
+    for out in outs:
+        m = json.loads((out / "metrics.json").read_text())
+        print(f"{out.name}: F1 {m['f1']:.3f}  P {m['precision']:.3f}  R {m['recall']:.3f}  "
+              f"cost/1k ${m['cost_per_1k_usd']:.3f}  p95 {m['latency_p95_s']:.2f}s  errors {m['errors']}")
+    from exactmatch import report  # late import: report imports this module
+    report.write()

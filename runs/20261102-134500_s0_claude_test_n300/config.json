@@ -1,0 +1,17 @@
+{
+  "system": "s0_claude",
+  "split": "test",
+  "k": 20,
+  "limit": 300,
+  "workers": 8,
+  "git_commit": "5dd4693-dirty",
+  "model": "claude-opus-5-5",
+  "price_per_1m_in_out": [
+    4.0,
+    20.0
+  ],
+  "effort": "low",
+  "max_tokens": 2048,
+  "retrieval": "bm25",
+  "verify": "pointwise zero-shot yes/no (s0 prompt)"
+}

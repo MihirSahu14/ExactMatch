@@ -24,20 +24,28 @@ from pathlib import Path
 import requests
 
 BASE_URL = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
-# Every chat model on Fireworks serverless (Nov 2026) is a reasoning model. The llama-3.1 / qwen3-4b / maverick
-# ids are retired (404). SMALL = 30B MoE with 3B active, thinking off; BIG = gpt-oss-120b, low reasoning.
-SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b")
-BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/gpt-oss-120b")
-EMBED = os.environ.get("EM_EMBED_MODEL", "accounts/fireworks/models/qwen3-embedding-8b")
+_ENV = Path(__file__).resolve().parent.parent / ".env"
+if _ENV.exists():  # KEY=value lines; real env vars win
+    for _line in _ENV.read_text().splitlines():
+        _k, _, _v = _line.partition("=")
+        if _k.strip() and _v.strip() and not _k.lstrip().startswith("#"):
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"'))
 
-# USD per 1M tokens (input, output). fireworks.ai/pricing is not reachable from the build container, so these
-# are Fireworks' published serverless tiers as we know them -- re-check before quoting cost numbers.
+# Llama 3.1 is no longer served (404). Every model listed on 2026-11-02 is a reasoning model:
+# pass reasoning_effort="none" for short answers, or they spend the whole max_tokens thinking and return "".
+SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b")
+BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/kimi-k3")
+EMBED = os.environ.get("EM_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
+
+# USD per 1M tokens (input, output), from docs.fireworks.ai/serverless/pricing on 2026-11-02.
 # Unknown models fall back to DEFAULT_PRICE and the run's CONFIG records which price was used.
 PRICES: dict[str, tuple[float, float]] = {
-    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": (0.50, 0.50),  # MoE 0-56B tier
-    "accounts/fireworks/models/gpt-oss-120b": (0.15, 0.60),
-    "accounts/fireworks/models/deepseek-v4p1-flash": (0.90, 0.90),           # unverified
-    "accounts/fireworks/models/qwen3-embedding-8b": (0.10, 0.0),             # unverified
+    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": (0.05, 0.20),
+    "accounts/fireworks/models/glm-5p3-flash": (0.15, 0.50),
+    "accounts/fireworks/models/deepseek-v4p1-flash": (0.30, 1.20),
+    "accounts/fireworks/models/glm-5p3": (1.40, 4.40),
+    "accounts/fireworks/models/kimi-k3": (3.00, 15.00),
+    "accounts/fireworks/models/gpt-oss-120b": (0.15, 0.60),  # not on that page snapshot; unverified
     "nomic-ai/nomic-embed-text-v1.5": (0.008, 0.0),
 }
 DEFAULT_PRICE = (0.90, 0.90)
@@ -49,6 +57,7 @@ REASONING: dict[str, dict] = {
     "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": {"effort": "none", "budget": 0},
     "accounts/fireworks/models/deepseek-v4p1-flash": {"effort": "none", "budget": 0},
     "accounts/fireworks/models/minimax-m3p1-flash": {"effort": "none", "budget": 0},
+    "accounts/fireworks/models/kimi-k3": {"effort": "none", "budget": 0},
     "accounts/fireworks/models/gpt-oss-120b": {"effort": "low", "budget": 512},
     "accounts/fireworks/models/glm-5p3-flash": {"effort": "low", "budget": 512},
 }
@@ -89,7 +98,8 @@ def cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
 class _Cache:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        # timeout=60: several eval processes share this file; the default 5s wait raises "database is locked"
+        self._db = sqlite3.connect(path, check_same_thread=False, timeout=60)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
         self._lock = threading.Lock()
@@ -134,7 +144,10 @@ def _post(path: str, payload: dict) -> dict:
         _session.s = requests.Session()
     for attempt in range(MAX_RETRIES):
         try:
-            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=TIMEOUT_S, headers=headers)
+            # Some serverless requests hang (Nemotron: ~1 in 6 at 16-way concurrency, measured 2026-11-02).
+            # A timeout sized to the request (10s for a 3-token answer) retries them fast instead of waiting 60s.
+            timeout = min(TIMEOUT_S, 10 + payload.get("max_tokens", 500) / 50)
+            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=timeout, headers=headers)
             if r.status_code == 200:
                 return r.json()
             retryable = r.status_code == 429 or r.status_code >= 500
@@ -152,21 +165,25 @@ def _post(path: str, payload: dict) -> dict:
 # ---------------------------------------------------------------- public API
 
 def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.0, max_tokens: int = 256,
-         json_schema: dict | None = None, seed: int | None = None) -> Completion:
+         json_schema: dict | None = None, seed: int | None = None,
+         reasoning_effort: str | None = None) -> Completion:
     """One chat completion. `messages` may be a plain string (sent as a single user message).
 
     max_tokens: budget for the ANSWER. The model's reasoning budget (REASONING) is added on top.
     json_schema: if given, asks Fireworks for schema-constrained JSON output. Parse with parse_json().
     seed: vary it to get distinct cached samples at temperature > 0 (self-consistency voting).
+    reasoning_effort: "none" | "low" | "medium" | "high". GLM 5.3 and gpt-oss reject "none" (thinking-only).
+        Default: the model's entry in REASONING (or Fireworks' default if it has none).
     Returned text never contains reasoning: <think>...</think> blocks are stripped.
     """
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
     r = reasoning(model)
+    effort = reasoning_effort if reasoning_effort is not None else r["effort"]
     payload = {"model": model, "messages": messages, "temperature": temperature,
-               "max_tokens": max_tokens + r["budget"]}
-    if r["effort"]:
-        payload["reasoning_effort"] = r["effort"]
+               "max_tokens": max_tokens + (0 if effort == "none" else r["budget"])}
+    if effort:
+        payload["reasoning_effort"] = effort
     if json_schema is not None:
         payload["response_format"] = {"type": "json_object", "schema": json_schema}
     if seed is not None:
@@ -179,10 +196,15 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
         return Completion(**hit, cached=True)
 
     resp = _post("/chat/completions", payload)
+    choice = resp["choices"][0]
+    text = strip_think(choice["message"].get("content") or "")
+    if not text and choice.get("finish_reason") == "length":
+        # A reasoning model spent max_tokens thinking. Raise (not cached) so the scorer logs an error
+        # instead of silently scoring "" as "no". Fix: reasoning_effort="none" or a bigger max_tokens.
+        raise RuntimeError(f"{model}: hit max_tokens={max_tokens} before answering (reasoning tokens?)")
     usage = resp.get("usage") or {}
     pt, ct = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-    out = {"text": strip_think(resp["choices"][0]["message"].get("content") or ""), "prompt_tokens": pt,
-           "completion_tokens": ct, "cost_usd": cost(model, pt, ct)}
+    out = {"text": text, "prompt_tokens": pt, "completion_tokens": ct, "cost_usd": cost(model, pt, ct)}
     cache.put(k, out)
     return Completion(**out)
 

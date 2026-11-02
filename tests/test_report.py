@@ -17,4 +17,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "latency_p95_s": 1.234, "errors": 0}))
     md = report.build(Path(tmp))
     assert "+0.200" in md and "0.100" not in md and "## test (full)" in md, md
+    made = report.make_charts(Path(tmp), Path(tmp) / "charts")
+    assert {"f1_by_system.png", "cost_vs_f1.png", "quality_breakdown.png"} <= set(made), made
+    assert all((Path(tmp) / "charts" / f).stat().st_size > 0 for f in made)
 print("ok")

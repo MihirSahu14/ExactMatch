@@ -81,5 +81,5 @@ assert llm.parse_json("no json here") is None
 # --- reasoning output is stripped; reasoning budget is added to max_tokens
 assert llm.strip_think("<think>hmm, V vs W</think>\nno") == "no"
 assert llm.strip_think("<think>cut off by max_tok") == ""
-assert llm.reasoning(llm.BIG)["budget"] > 0 or llm.reasoning(llm.BIG)["effort"] is None
+assert all(r["budget"] > 0 for r in llm.REASONING.values() if r["effort"] != "none"), "thinking models need a budget"
 print("ok")

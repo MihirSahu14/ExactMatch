@@ -18,7 +18,8 @@ PROMPTS = {
 
 def config(model: str) -> dict:
     return {"model": model, "price_per_1m_in_out": llm.price(model), "retrieval": "bm25",
-            "verify": "pointwise zero-shot yes/no", "temperature": 0.0, "max_tokens": 3}
+            "verify": "pointwise zero-shot yes/no", "temperature": 0.0, "max_tokens": 3,
+            "reasoning_effort": "none"}
 
 
 CONFIG = config(MODEL)
@@ -27,7 +28,8 @@ CONFIG = config(MODEL)
 def verify_pointwise(query: ProductRecord, candidates: list[ProductRecord], model: str) -> Result:
     def ask(c: ProductRecord):
         prompt = PROMPTS["verify"].format(a=fmt_record(query), b=fmt_record(c))
-        return llm.chat(prompt, model=model, temperature=0.0, max_tokens=3)
+        # reasoning off: with it on, 3 tokens is all thinking and the answer comes back empty ("no" for everything)
+        return llm.chat(prompt, model=model, temperature=0.0, max_tokens=3, reasoning_effort="none")
 
     outs = pmap(ask, candidates)
     matches = [Match(c.id, 1.0, f"{model.rsplit('/', 1)[-1]} said yes")
