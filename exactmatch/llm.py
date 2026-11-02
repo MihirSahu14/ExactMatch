@@ -24,18 +24,34 @@ from pathlib import Path
 import requests
 
 BASE_URL = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
-SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/llama-v3p1-8b-instruct")
-BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/llama-v3p1-70b-instruct")
-EMBED = os.environ.get("EM_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
+# Every chat model on Fireworks serverless (Nov 2026) is a reasoning model. The llama-3.1 / qwen3-4b / maverick
+# ids are retired (404). SMALL = 30B MoE with 3B active, thinking off; BIG = gpt-oss-120b, low reasoning.
+SMALL = os.environ.get("EM_SMALL_MODEL", "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b")
+BIG = os.environ.get("EM_BIG_MODEL", "accounts/fireworks/models/gpt-oss-120b")
+EMBED = os.environ.get("EM_EMBED_MODEL", "accounts/fireworks/models/qwen3-embedding-8b")
 
-# USD per 1M tokens (input, output). Verify against https://fireworks.ai/pricing and add the models you use.
+# USD per 1M tokens (input, output). fireworks.ai/pricing is not reachable from the build container, so these
+# are Fireworks' published serverless tiers as we know them -- re-check before quoting cost numbers.
 # Unknown models fall back to DEFAULT_PRICE and the run's CONFIG records which price was used.
 PRICES: dict[str, tuple[float, float]] = {
-    "accounts/fireworks/models/llama-v3p1-8b-instruct": (0.20, 0.20),
-    "accounts/fireworks/models/llama-v3p1-70b-instruct": (0.90, 0.90),
+    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": (0.50, 0.50),  # MoE 0-56B tier
+    "accounts/fireworks/models/gpt-oss-120b": (0.15, 0.60),
+    "accounts/fireworks/models/deepseek-v4p1-flash": (0.90, 0.90),           # unverified
+    "accounts/fireworks/models/qwen3-embedding-8b": (0.10, 0.0),             # unverified
     "nomic-ai/nomic-embed-text-v1.5": (0.008, 0.0),
 }
 DEFAULT_PRICE = (0.90, 0.90)
+
+# Per-model reasoning control. `reasoning_effort` is sent to Fireworks; `budget` is extra max_tokens on top of the
+# caller's answer budget, because reasoning tokens count against max_tokens (and are billed as output).
+# "none" is rejected by gpt-oss and GLM (thinking-only), so they get "low".
+REASONING: dict[str, dict] = {
+    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": {"effort": "none", "budget": 0},
+    "accounts/fireworks/models/deepseek-v4p1-flash": {"effort": "none", "budget": 0},
+    "accounts/fireworks/models/minimax-m3p1-flash": {"effort": "none", "budget": 0},
+    "accounts/fireworks/models/gpt-oss-120b": {"effort": "low", "budget": 512},
+    "accounts/fireworks/models/glm-5p3-flash": {"effort": "low", "budget": 512},
+}
 
 CACHE_PATH = Path(os.environ.get("EM_CACHE", Path(__file__).resolve().parent.parent / ".cache" / "llm.sqlite"))
 TIMEOUT_S = 60
@@ -57,6 +73,10 @@ class Completion:
 
 def price(model: str) -> tuple[float, float]:
     return PRICES.get(model, DEFAULT_PRICE)
+
+
+def reasoning(model: str) -> dict:
+    return REASONING.get(model, {"effort": None, "budget": 0})
 
 
 def cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -135,12 +155,18 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
          json_schema: dict | None = None, seed: int | None = None) -> Completion:
     """One chat completion. `messages` may be a plain string (sent as a single user message).
 
+    max_tokens: budget for the ANSWER. The model's reasoning budget (REASONING) is added on top.
     json_schema: if given, asks Fireworks for schema-constrained JSON output. Parse with parse_json().
     seed: vary it to get distinct cached samples at temperature > 0 (self-consistency voting).
+    Returned text never contains reasoning: <think>...</think> blocks are stripped.
     """
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
-    payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    r = reasoning(model)
+    payload = {"model": model, "messages": messages, "temperature": temperature,
+               "max_tokens": max_tokens + r["budget"]}
+    if r["effort"]:
+        payload["reasoning_effort"] = r["effort"]
     if json_schema is not None:
         payload["response_format"] = {"type": "json_object", "schema": json_schema}
     if seed is not None:
@@ -155,7 +181,7 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
     resp = _post("/chat/completions", payload)
     usage = resp.get("usage") or {}
     pt, ct = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-    out = {"text": resp["choices"][0]["message"].get("content") or "", "prompt_tokens": pt,
+    out = {"text": strip_think(resp["choices"][0]["message"].get("content") or ""), "prompt_tokens": pt,
            "completion_tokens": ct, "cost_usd": cost(model, pt, ct)}
     cache.put(k, out)
     return Completion(**out)
@@ -176,6 +202,14 @@ def embed(texts: list[str], model: str = EMBED, batch_size: int = 128) -> tuple[
             cache.put(keys[i], item["embedding"])
         spent += cost(model, (resp.get("usage") or {}).get("prompt_tokens", 0), 0)
     return vecs, spent
+
+
+_THINK_RE = re.compile(r"<think>.*?(</think>|$)", re.S)
+
+
+def strip_think(text: str) -> str:
+    """Drop <think>...</think> blocks (and an unterminated one cut off by max_tokens) from model output."""
+    return _THINK_RE.sub("", text or "").strip()
 
 
 _JSON_RE = re.compile(r"\{.*\}", re.S)
@@ -205,4 +239,5 @@ if __name__ == "__main__":
     else:
         for m in (SMALL, BIG):
             c = chat("Reply with the single word: pong", model=m, max_tokens=5)
+            assert c.text.strip(" .").lower() == "pong", f"{m}: unexpected reply {c.text!r}"
             print(f"{m}: {c.text!r} tokens={c.tokens} cost=${c.cost_usd:.6f} cached={c.cached}")

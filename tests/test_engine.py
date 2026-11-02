@@ -69,12 +69,17 @@ n_after_first = calls["n"]
 res2 = s0.find_matches(q, k=3)
 assert calls["n"] == n_after_first and res2.cost_usd == res.cost_usd
 
-# --- big model uses a different model id (not served from the small model's cache) and costs more
+# --- big model uses a different model id (not served from the small model's cache), priced at its own rate
 res3 = s0_big.find_matches(q, k=3)
-assert calls["n"] > n_after_first and res3.cost_usd > res.cost_usd
+assert calls["n"] > n_after_first and abs(res3.cost_usd - llm.cost(llm.BIG, 100 * n, n)) < 1e-12
 assert s0_big.CONFIG["model"] == llm.BIG and s0.CONFIG["model"] == llm.SMALL
 
 # --- JSON parsing tolerates chatter
 assert llm.parse_json('Sure!\n```json\n{"match": true}\n```') == {"match": True}
 assert llm.parse_json("no json here") is None
+
+# --- reasoning output is stripped; reasoning budget is added to max_tokens
+assert llm.strip_think("<think>hmm, V vs W</think>\nno") == "no"
+assert llm.strip_think("<think>cut off by max_tok") == ""
+assert llm.reasoning(llm.BIG)["budget"] > 0 or llm.reasoning(llm.BIG)["effort"] is None
 print("ok")
