@@ -1,4 +1,8 @@
 """Fireworks AI client: chat + embeddings with retries, JSON parsing, cost accounting and a disk cache. Owner: B.
+Shared by systems/ (B) and ingest.py (C). Both call styles work:
+
+    llm.chat("prompt or messages", model=llm.SMALL, json_schema=..., reasoning_effort="none")   # systems/
+    r = llm.chat(llm.SMALL, [{"role": "user", "content": "..."}], json_mode=True); r.json         # main's style
 
     python -m exactmatch.llm --ping      # one tiny call to the small and big model
     python -m exactmatch.llm --models    # list models your key can see
@@ -73,12 +77,20 @@ class Completion:
     text: str
     prompt_tokens: int
     completion_tokens: int
-    cost_usd: float
+    cost_usd: float = 0.0
     cached: bool = False
 
     @property
     def tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+    @property
+    def json(self) -> dict | None:
+        """Parsed JSON object from the reply, or None. Tolerates code fences and prose around it."""
+        return parse_json(self.text)
+
+
+Reply = Completion  # name used on main before the clients were merged
 
 
 def price(model: str) -> tuple[float, float]:
@@ -148,7 +160,7 @@ def _post(path: str, payload: dict) -> dict:
             # Some serverless requests hang (Nemotron: ~1 in 6 at 16-way concurrency, measured 2026-11-02).
             # A timeout sized to the request (10s for a 3-token answer) retries them fast instead of waiting 60s.
             timeout = min(TIMEOUT_S, 10 + payload.get("max_tokens", 500) / 50)
-            r = _session.s.post(f"{BASE_URL}{path}", json=payload, timeout=timeout, headers=headers)
+            r = _session.s.post(f"{BASE_URL}/{path.lstrip('/')}", json=payload, timeout=timeout, headers=headers)
             if r.status_code == 200:
                 return r.json()
             retryable = r.status_code == 429 or r.status_code >= 500
@@ -167,8 +179,10 @@ def _post(path: str, payload: dict) -> dict:
 
 def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.0, max_tokens: int = 256,
          json_schema: dict | None = None, seed: int | None = None,
-         reasoning_effort: str | None = None) -> Completion:
+         reasoning_effort: str | None = None, json_mode: bool = False) -> Completion:
     """One chat completion. `messages` may be a plain string (sent as a single user message).
+    chat(model, messages) also works (arguments swapped are detected: messages as a list, model as a string).
+    json_mode: ask for a JSON object without a schema (json_schema wins if both are given).
 
     max_tokens: budget for the ANSWER. The model's reasoning budget (REASONING) is added on top.
     json_schema: if given, asks Fireworks for schema-constrained JSON output. Parse with parse_json().
@@ -177,6 +191,8 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
         Default: the model's entry in REASONING (or Fireworks' default if it has none).
     Returned text never contains reasoning: <think>...</think> blocks are stripped.
     """
+    if isinstance(messages, str) and isinstance(model, list):
+        messages, model = model, messages
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
     r = reasoning(model)
@@ -187,6 +203,8 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
         payload["reasoning_effort"] = effort
     if json_schema is not None:
         payload["response_format"] = {"type": "json_object", "schema": json_schema}
+    elif json_mode:
+        payload["response_format"] = {"type": "json_object"}
     if seed is not None:
         payload["seed"] = seed
 
@@ -196,7 +214,7 @@ def chat(messages: list[dict] | str, model: str = SMALL, temperature: float = 0.
     if hit is not None:
         return Completion(**hit, cached=True)
 
-    resp = _post("/chat/completions", payload)
+    resp = _post("chat/completions", payload)
     choice = resp["choices"][0]
     text = strip_think(choice["message"].get("content") or "")
     if not text and choice.get("finish_reason") == "length":
@@ -219,7 +237,7 @@ def embed(texts: list[str], model: str = EMBED, batch_size: int = 128) -> tuple[
     spent = 0.0
     for start in range(0, len(todo), batch_size):
         idx = todo[start:start + batch_size]
-        resp = _post("/embeddings", {"model": model, "input": [texts[i] for i in idx]})
+        resp = _post("embeddings", {"model": model, "input": [texts[i] for i in idx]})
         for i, item in zip(idx, sorted(resp["data"], key=lambda d: d["index"])):
             vecs[i] = item["embedding"]
             cache.put(keys[i], item["embedding"])
