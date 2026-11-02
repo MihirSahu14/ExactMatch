@@ -46,6 +46,7 @@ PRICES: dict[str, tuple[float, float]] = {
     "accounts/fireworks/models/glm-5p3": (1.40, 4.40),
     "accounts/fireworks/models/kimi-k3": (3.00, 15.00),
     "accounts/fireworks/models/gpt-oss-120b": (0.15, 0.60),  # not on that page snapshot; unverified
+    "accounts/fireworks/models/qwen3-embedding-8b": (0.10, 0.0),  # not on that page snapshot; unverified
     "nomic-ai/nomic-embed-text-v1.5": (0.008, 0.0),
 }
 DEFAULT_PRICE = (0.90, 0.90)
@@ -64,7 +65,7 @@ REASONING: dict[str, dict] = {
 
 CACHE_PATH = Path(os.environ.get("EM_CACHE", Path(__file__).resolve().parent.parent / ".cache" / "llm.sqlite"))
 TIMEOUT_S = 60
-MAX_RETRIES = 6
+MAX_RETRIES = 8  # 429s under 2 parallel runs exhausted 6
 
 
 @dataclass

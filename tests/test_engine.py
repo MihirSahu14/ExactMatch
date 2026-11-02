@@ -14,6 +14,14 @@ from exactmatch.systems import s0, s0_big  # noqa: E402
 toks = retrieval.tokenize("Sony KDL-46V5100 46in")
 assert {"kdl-46v5100", "kdl46v5100", "kdl", "46v5100", "46in"} <= set(toks), toks
 
+# --- model-number extraction: codes kept across spellings, units and plain words dropped
+mc = retrieval.model_codes
+assert "ds7204hqhik1" in mc("Hikvision DS-7204HQHI-K1 Turbo HD DVR"), mc("Hikvision DS-7204HQHI-K1")
+assert "tt13ec2s" in mc("Evans TT13EC2S EC2 Clear") and "1204071704100" in mc("Tissot T120 1204071704100")
+assert not mc("SSD 128GB 2.5in 1080p 3.9GHz") and not mc("clear drum head")
+idx = retrieval.CodeIndex([("a", {"c13t692300"}), ("b", {"t6924"}), ("c", {"xyz123"})])
+assert [pid for pid, _ in idx.search({"t692300"}, 5)] == ["a"]  # contained code still hits
+
 # --- fake catalog
 CAT = [
     ProductRecord("wdc:1", "Sony Bravia KDL-46V5100 46in LCD TV", brand="Sony", price=999.0, currency="USD"),
