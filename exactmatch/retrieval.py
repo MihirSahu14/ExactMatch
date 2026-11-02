@@ -48,14 +48,14 @@ class BM25:
 
     def search(self, tokens: list[str], k: int) -> list[tuple[str, float]]:
         scores: dict[int, float] = defaultdict(float)
-        for term in set(tokens):
+        for term in sorted(set(tokens)):  # sorted: set order varies per process, which changed float sums and ties
             idf = self.idf.get(term)
             if idf is None:
                 continue
             for i, tf in self.postings[term]:
                 norm = tf + self.k1 * (1 - self.b + self.b * self.lens[i] / self.avgdl)
                 scores[i] += idf * tf * (self.k1 + 1) / norm
-        top = sorted(scores.items(), key=lambda kv: -kv[1])[:k]
+        top = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
         return [(self.ids[i], s) for i, s in top]
 
 
@@ -122,13 +122,13 @@ class CodeIndex:
         for pid, codes in docs:
             for c in codes:
                 self.by_code[c].add(pid)
-        self.long_codes = [c for c in self.by_code if len(c) >= 6]
+        self.long_codes = sorted(c for c in self.by_code if len(c) >= 6)
 
     def search(self, codes: set[str], k: int) -> list[tuple[str, float]]:
         """Docs sharing a code (exact = 1.0; one code contains the other, both >= 5 chars = 0.6), weighted by
         rarity so a code shared by 40 offers counts less than one shared by 3."""
         scores: dict[str, float] = defaultdict(float)
-        for c in codes:
+        for c in sorted(codes):
             hits = {c: 1.0} if c in self.by_code else {}
             if len(c) >= 5:
                 for lc in self.long_codes:
@@ -138,7 +138,7 @@ class CodeIndex:
                 ids = self.by_code[code]
                 for pid in ids:
                     scores[pid] += w * len(code) / (1 + math.log(len(ids)))
-        return sorted(scores.items(), key=lambda kv: -kv[1])[:k]
+        return sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
 
 
 def _codes() -> CodeIndex:
@@ -215,5 +215,5 @@ def hybrid_search(query: ProductRecord, k: int = 20, depth: int = 100) -> tuple[
     for name, ranked in lists.items():
         for r, pid in enumerate(ranked):
             fused[pid] += WEIGHTS[name] / (RRF_K + r + 1)
-    top = sorted(fused, key=lambda pid: -fused[pid])[:k]
+    top = sorted(fused, key=lambda pid: (-fused[pid], pid))[:k]
     return [by_id[pid] for pid in top], spent
