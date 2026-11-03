@@ -210,6 +210,37 @@ def make_charts(runs: Path = RUNS, out_dir: Path = CHARTS) -> list[str]:
         fig.tight_layout()
         fig.savefig(out_dir / "iterations.png", facecolor=SURFACE)
         made.append("iterations.png")
+
+    # 6. headline cards: before -> after, every value read from runs (s4_groups deliberately left out)
+    full = {c["system"]: m for _, c, m in all_runs if c["split"] == "test" and not c["limit"]}
+    sample = {c["system"]: m for _, c, m in all_runs if c["split"] == "test" and c["limit"] == 300}
+    pct = lambda v: f"{v:.1%}"
+    cards = []
+    if "s0" in full and "s3" in full:  # s3, not s4: s4 also calls Kimi K3, so it isn't "the same model"
+        cards.append(("Match F1, harness only", f"{pct(full['s0']['f1'])} → {pct(full['s3']['f1'])}",
+                      f"s0 → s3 · same DeepSeek model · full test split ({full['s3']['queries']:,} queries)"))
+        cards.append(("Precision, harness only", f"{pct(full['s0']['precision'])} → {pct(full['s3']['precision'])}",
+                      "s0 → s3 · returned listings that are truly the same product"))
+    if "s0_claude" in sample and "s3" in sample:
+        c, s = sample["s0_claude"], sample["s3"]
+        cards.append(("F1 vs Claude Opus 5.5", f"{pct(c['f1'])} → {pct(s['f1'])}",
+                      f"Claude → s3 · same {s['queries']} test queries"))
+        cards.append(("Cost per lookup vs Claude", f"{1 - s['cost_per_1k_usd'] / c['cost_per_1k_usd']:.1%} lower",
+                      f"\\${c['cost_per_1k_usd']:.2f} → \\${s['cost_per_1k_usd']:.2f} per 1,000 lookups (s3)"))  # \$: not mathtext
+    if cards:
+        from matplotlib.patches import FancyBboxPatch
+        fig = plt.figure(figsize=(3.4 * len(cards), 2.3), dpi=150, facecolor=SURFACE)
+        for i, (label, value, note) in enumerate(cards):
+            ax = fig.add_axes([i / len(cards) + 0.008, 0.06, 1 / len(cards) - 0.016, 0.88])
+            ax.set_axis_off()
+            ax.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0,rounding_size=0.06",
+                                        facecolor="#ffffff", edgecolor=GRID, linewidth=1, transform=ax.transAxes))
+            ax.text(0.07, 0.80, label, color=INK2, fontsize=10, transform=ax.transAxes)
+            ax.text(0.07, 0.44, value, color=FAMILIES["Our pipeline (open model)"], fontsize=19, weight="bold",
+                    transform=ax.transAxes)
+            ax.text(0.07, 0.16, note, color=MUTED, fontsize=7.2, transform=ax.transAxes, wrap=True)
+        fig.savefig(out_dir / "headline.png", facecolor=SURFACE)
+        made.append("headline.png")
     plt.close("all")
     return made
 

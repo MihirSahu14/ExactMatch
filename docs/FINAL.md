@@ -1,6 +1,6 @@
 # ExactMatch: final write-up
 
-*Fireworks: Deploy, Nov 2 2026. Team: Mihir Sahu (data, eval, results) and Ishita Kapoor (matching engine). Every number below comes from a run folder committed in `runs/`, and `results.md` is generated from those folders.*
+*Fireworks: Deploy, Nov 2 2026. Team: Mihir Sahu (data, eval, results), Ishita Kapoor (matching engine) and Harsh Kadodwala (link ingestion and demo). Every number below comes from a run folder committed in `runs/`, and `results.md` is generated from those folders.*
 
 ## 1. Summary
 
@@ -186,7 +186,7 @@ There is no GitHub Actions workflow in the repo, so we ran these locally on the 
 
 All pass.
 
-### Link ingestion and the live demo (added at 15:52 by the third teammate, `c/ingestion`)
+### Link ingestion and the live demo (Harsh Kadodwala, branch `c/ingestion`, added at 15:52)
 - **`ingest.py`, link to product record:** reads schema.org JSON-LD, then Open Graph/meta tags, then the page title. Fireworks is called only when the title, brand or price is still missing. `normalize.py` fills the model number. It also refuses private or local addresses.
   - Tested on a real abt.com Sony WH-CH730N page: 0.7s, no model call needed, model number `WHCH730NB`.
 - **`app.py` (`python -m exactmatch.app`), the demo page:** paste a URL, see the matching listings in a **live catalog of 164 current listings** (`data/live_catalog.jsonl`).
@@ -235,3 +235,5 @@ The default small model is DeepSeek V4.1 Flash, the model all reported runs used
 | 15:05–15:12 | Final empty-cache runs of `s0`–`s4` on the test sample. Benchmark showcase published. |
 | 15:18–15:36 | Full 1,500-query test runs; `s4_groups` added and reported separately. |
 | 15:37 | Code and process audit (section 9); everything merged to `main`. |
+| 15:52 | Harsh's link ingestion and live demo landed; fixed for the merged client and merged to `main`. |
+| 16:00 | Submission README; plan and write-up moved to `docs/`. |

@@ -4,7 +4,9 @@
 
 An open model on Fireworks inside a purpose-built harness **beats Claude Opus 5.5 on match F1 at 32× lower cost per lookup**.
 
-*Fireworks: Deploy hackathon, Nov 2 2026 · Mihir Sahu (data, eval, results) · Ishita Kapoor (matching engine) · `imharshk18` (link ingestion and demo)*
+<img src="results/headline.png" alt="Match F1 83.8% to 88.1% and precision 91.3% to 94.4% from the harness alone on the full test split; F1 85.3% (Claude Opus 5.5) to 86.3% (s3) on the shared 300-query sample; cost per lookup 96.9% lower than Claude">
+
+*Fireworks: Deploy hackathon, Nov 2 2026 · Mihir Sahu (data, eval, results) · Ishita Kapoor (matching engine) · Harsh Kadodwala (link ingestion and demo)*
 
 ---
 
