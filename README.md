@@ -1,4 +1,4 @@
-# ExactMatch
+# Shopaholics
 
 **Paste a product, or a link to one, and get back every listing of that exact product in a catalog, each with a confidence and the evidence for it. If the product isn't there, it says so.**
 
