@@ -45,13 +45,13 @@ Marketplaces, price-comparison sites and retail catalog teams get the same produ
 ## How it works
 
 ```mermaid
-flowchart TD
-  A["<b>1. Paste a product link</b><br/>e.g. Sony WH-1000XM6 headphones on Sony.com"]
-  B["<b>2. Read the product page</b><br/>title · brand · price · model number WH1000XM6"]
-  C["<b>3. Shortlist 30 look-alikes from the catalog</b><br/>same words · similar meaning · same model number"]
-  D["<b>4. One AI call compares all 30 at once</b><br/>cheap open model on Fireworks<br/>each candidate tagged: 'same model no.' or 'different model no.'"]
-  E["<b>5. Unsure? Ask a bigger model</b><br/>only for the hard cases"]
-  F["<b>Answer</b><br/>every listing of the exact same product, with the reason<br/>e.g. 'model no. WH1000XM6 matches'<br/>or 'not in the catalog'"]
+flowchart LR
+  A["<b>1. Paste a link</b><br/>e.g. Sony WH-1000XM6<br/>on Sony.com"]
+  B["<b>2. Read the page</b><br/>title · brand · price<br/>model no. WH1000XM6"]
+  C["<b>3. Shortlist 30<br/>look-alikes</b><br/>same words · similar<br/>meaning · same model no."]
+  D["<b>4. One AI call<br/>checks all 30</b><br/>cheap open model<br/>on Fireworks"]
+  E["<b>5. Unsure?<br/>Ask a bigger model</b><br/>hard cases only"]
+  F["<b>Answer</b><br/>exact matches + reason<br/>'model no. WH1000XM6 matches'<br/>or 'not in the catalog'"]
   A --> B --> C --> D
   D -- "confident" --> F
   D -- "unsure" --> E --> F
