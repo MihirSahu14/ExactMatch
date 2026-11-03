@@ -45,15 +45,19 @@ Marketplaces, price-comparison sites and retail catalog teams get the same produ
 ## How it works
 
 ```mermaid
-flowchart LR
-  U["Product URL<br/>or record"] --> I["Ingest<br/>JSON-LD, meta tags,<br/>LLM only if fields missing"]
-  I --> N["Normalize<br/>brand, model number,<br/>units, variants"]
-  N --> R["Retrieve top 30<br/>BM25 + Qwen3 embeddings<br/>+ model-number index (RRF)"]
-  R --> V["Verify: ONE listwise call<br/>DeepSeek V4.1 Flash<br/>with model-number hints"]
-  V -->|"unsure"| K["Cascade<br/>Kimi K3 re-judges"]
-  V --> M["0..n exact matches<br/>confidence + evidence"]
-  K --> M
+flowchart TD
+  A["<b>1. Paste a product link</b><br/>e.g. Sony WH-1000XM6 headphones on Sony.com"]
+  B["<b>2. Read the product page</b><br/>title · brand · price · model number WH1000XM6"]
+  C["<b>3. Shortlist 30 look-alikes from the catalog</b><br/>same words · similar meaning · same model number"]
+  D["<b>4. One AI call compares all 30 at once</b><br/>cheap open model on Fireworks<br/>each candidate tagged: 'same model no.' or 'different model no.'"]
+  E["<b>5. Unsure? Ask a bigger model</b><br/>only for the hard cases"]
+  F["<b>Answer</b><br/>every listing of the exact same product, with the reason<br/>e.g. 'model no. WH1000XM6 matches'<br/>or 'not in the catalog'"]
+  A --> B --> C --> D
+  D -- "confident" --> F
+  D -- "unsure" --> E --> F
 ```
+
+In short: **read the page, shortlist look-alikes, let one cheap AI call pick the exact ones, and escalate only the hard cases.** Under the hood, step 3 combines keyword search (BM25), Qwen3 embeddings and a model-number index; step 4 is DeepSeek V4.1 Flash (`s3`); step 5 is Kimi K3 (`s4`).
 
 ### How we got there
 Each step was chosen from error analysis on the **validation** split. F1 is on 300 validation queries:
